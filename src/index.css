@@ -1,0 +1,142 @@
+@import url("https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;500;600;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+  line-height: 1.6;
+  font-weight: 400;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  background-color: #fffaf7;
+  color: #1e2a4a;
+  min-height: 100vh;
+}
+
+.bg-cream {
+  background: radial-gradient(
+      ellipse 80% 60% at 90% 0%,
+      rgba(212, 165, 116, 0.08) 0%,
+      transparent 60%
+    ),
+    radial-gradient(
+      ellipse 60% 50% at 0% 100%,
+      rgba(255, 229, 224, 0.4) 0%,
+      transparent 60%
+    ),
+    #fffaf7;
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-rose-gold-gradient text-white rounded-lg px-5 py-2.5 font-medium
+      shadow-card hover:shadow-glow hover:-translate-y-0.5 transition-all
+      duration-300 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-secondary {
+    @apply bg-white text-ink border border-rose-gold-200 rounded-lg px-5 py-2.5
+      font-medium hover:bg-peach-soft hover:border-rose-gold-300 transition-all
+      duration-300;
+  }
+
+  .btn-ghost {
+    @apply text-ink-soft hover:text-ink hover:bg-peach-soft rounded-lg px-4 py-2
+      transition-all duration-200;
+  }
+
+  .card {
+    @apply bg-white rounded-2xl shadow-card border border-rose-gold-50
+      transition-all duration-300;
+  }
+
+  .card-hover {
+    @apply hover:shadow-card-hover hover:-translate-y-1;
+  }
+
+  .tag-pill {
+    @apply inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium
+      transition-all duration-200 cursor-pointer select-none;
+  }
+
+  .tag-pill-default {
+    @apply bg-peach-soft text-ink-soft border border-transparent
+      hover:border-rose-gold-300 hover:bg-white hover:text-ink;
+  }
+
+  .tag-pill-active {
+    @apply bg-rose-gold-gradient text-white shadow-md;
+  }
+
+  .input-base {
+    @apply w-full rounded-lg border border-rose-gold-100 bg-white px-4 py-2.5
+      text-sm text-ink placeholder:text-ink-soft/50
+      focus:border-rose-gold-400 focus:outline-none focus:ring-2 focus:ring-rose-gold-200/50
+      transition-all duration-200;
+  }
+
+  .nav-item {
+    @apply flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium
+      transition-all duration-200 cursor-pointer;
+  }
+
+  .nav-item-inactive {
+    @apply text-ink-soft hover:bg-peach-soft hover:text-ink;
+  }
+
+  .nav-item-active {
+    @apply bg-rose-gold-gradient text-white shadow-card;
+  }
+
+  .section-title {
+    @apply font-serif text-lg font-semibold text-ink mb-4 flex items-center gap-2;
+  }
+
+  .section-title::before {
+    content: "";
+    @apply block w-1 h-5 rounded-full bg-rose-gold-gradient;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(212, 165, 116, 0.3);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(212, 165, 116, 0.5);
+}
+
+/* Range slider styling */
+input[type="range"] {
+  -webkit-appearance: none;
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(to right, #d4a574, #b8956e);
+  outline: none;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: white;
+  border: 2px solid #d4a574;
+  box-shadow: 0 2px 8px rgba(212, 165, 116, 0.3);
+  cursor: pointer;
+}
