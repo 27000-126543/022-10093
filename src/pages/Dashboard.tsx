@@ -13,6 +13,8 @@ import {
   XAxis,
   YAxis,
   CartesianGrid,
+  BarChart,
+  Bar,
 } from 'recharts';
 import {
   TrendingUp,
@@ -28,6 +30,10 @@ import {
   UserCircle2,
   Flame,
   ArrowRight,
+  Eye,
+  BarChart3,
+  PieChart as PieChartIcon,
+  ChevronUp,
 } from 'lucide-react';
 
 import { useCustomerStore } from '@/store/customerStore';
@@ -594,6 +600,8 @@ export default function Dashboard() {
   const [viewMode, setViewMode] = useState<'consultant' | 'supervisor'>('consultant');
   const [rangeDays, setRangeDays] = useState<7 | 30>(7);
   const [expandedConsultantId, setExpandedConsultantId] = useState<string | null>(null);
+  const [dealQualityDim, setDealQualityDim] = useState<'project' | 'channel' | 'consultant'>('project');
+  const [expandedDealQualityKey, setExpandedDealQualityKey] = useState<string | null>(null);
 
   if (customers.length === 0) {
     initializeMockData();
@@ -686,6 +694,66 @@ export default function Dashboard() {
   );
 
   const dateRange = useMemo(() => getDateRangeArray(rangeDays), [rangeDays]);
+  const rangeStart = dateRange[0]?.date ?? '';
+  const rangeEnd = dateRange[dateRange.length - 1]?.date ?? '';
+
+  const getDealAnalytics = useCustomerStore((s) => s.getDealAnalytics);
+  const records = useCustomerStore((s) => s.records);
+
+  const dealAnalytics = useMemo(() => {
+    if (!rangeStart || !rangeEnd) return { byProject: [], byChannel: [], byConsultant: [] };
+    return getDealAnalytics(rangeStart, rangeEnd);
+  }, [getDealAnalytics, rangeStart, rangeEnd]);
+
+  const feedbackTagDistribution = useMemo(() => {
+    const customerIdsInRange = new Set(
+      customers
+        .filter((c) => {
+          const date = c.deal_at ?? c.created_at;
+          return date >= rangeStart && date <= rangeEnd;
+        })
+        .map((c) => c.id)
+    );
+    const map = new Map<string, number>();
+    records
+      .filter(
+        (r) =>
+          r.record_type === 'follow_up_done' &&
+          r.feedback_tag &&
+          customerIdsInRange.has(r.customer_id)
+      )
+      .forEach((r) => {
+        if (r.feedback_tag) {
+          map.set(r.feedback_tag, (map.get(r.feedback_tag) ?? 0) + 1);
+        }
+      });
+    return Array.from(map.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+  }, [records, customers, rangeStart, rangeEnd]);
+
+  const undealReasonDistribution = useMemo(() => {
+    const map = new Map<string, number>();
+    customers
+      .filter((c) => c.status === 'lost')
+      .forEach((c) => {
+        if (c.undeal_reason) {
+          map.set(c.undeal_reason, (map.get(c.undeal_reason) ?? 0) + 1);
+        }
+      });
+    records
+      .filter((r) => r.undeal_reason)
+      .forEach((r) => {
+        if (r.undeal_reason) {
+          map.set(r.undeal_reason, (map.get(r.undeal_reason) ?? 0) + 1);
+        }
+      });
+    const colors = ['#FF6B6B', '#F59E0B', '#4ECDC4', '#D4A574', '#9CA3AF', '#FFB36B', '#A78BFA', '#60A5FA'];
+    return Array.from(map.entries())
+      .map(([name, value], i) => ({ name, value, color: colors[i % colors.length] }))
+      .sort((a, b) => b.value - a.value);
+  }, [customers, records]);
 
   const supervisorStats = useMemo(() => {
     const rangeStart = dateRange[0]?.date ?? '';
@@ -1262,6 +1330,357 @@ export default function Dashboard() {
                     );
                   })()}
               </AnimatePresence>
+            </motion.div>
+
+            <motion.div variants={fadeInUp} className="card p-6">
+              <h3 className="section-title !mb-0 mb-5 flex items-center gap-2">
+                <BarChart3 size={18} className="text-rose-gold-500" />
+                成交质量分析
+              </h3>
+
+              <div className="flex items-center gap-2 mb-5 flex-wrap">
+                <div className="flex items-center gap-1 bg-peach-soft/60 rounded-xl p-1">
+                  {([
+                    { key: 'project', label: '按项目' },
+                    { key: 'channel', label: '按渠道' },
+                    { key: 'consultant', label: '按咨询师' },
+                  ] as const).map((t) => (
+                    <button
+                      key={t.key}
+                      onClick={() => {
+                        setDealQualityDim(t.key);
+                        setExpandedDealQualityKey(null);
+                      }}
+                      className={cn(
+                        'px-4 py-2 rounded-lg text-sm font-medium transition-all',
+                        dealQualityDim === t.key
+                          ? 'bg-white text-ink shadow-sm'
+                          : 'text-ink-soft hover:text-ink'
+                      )}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="text-xs text-ink-soft ml-auto">
+                  统计周期内共 {dealAnalytics[`by${dealQualityDim === 'project' ? 'Project' : dealQualityDim === 'channel' ? 'Channel' : 'Consultant'}`].length} 个维度项
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-rose-gold-100">
+                      <th className="text-left py-3 px-4 text-sm font-semibold text-ink-soft">
+                        {dealQualityDim === 'project' ? '成交项目' : dealQualityDim === 'channel' ? '来源渠道' : '咨询师'}
+                      </th>
+                      <th className="text-center py-3 px-4 text-sm font-semibold text-ink-soft">成交数</th>
+                      <th className="text-center py-3 px-4 text-sm font-semibold text-ink-soft">成交金额</th>
+                      <th className="text-center py-3 px-4 text-sm font-semibold text-ink-soft">客单价</th>
+                      <th className="text-center py-3 px-4 text-sm font-semibold text-ink-soft">平均成交周期</th>
+                      <th className="text-center py-3 px-4 text-sm font-semibold text-ink-soft">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(() => {
+                      const list =
+                        dealQualityDim === 'project'
+                          ? dealAnalytics.byProject
+                          : dealQualityDim === 'channel'
+                          ? dealAnalytics.byChannel
+                          : dealAnalytics.byConsultant;
+                      if (list.length === 0) {
+                        return (
+                          <tr>
+                            <td colSpan={6} className="py-12 text-center text-ink-soft/50 text-sm">
+                              暂无成交数据
+                            </td>
+                          </tr>
+                        );
+                      }
+                      return list.map((item) => {
+                        const isExpanded = expandedDealQualityKey === item.key;
+                        return (
+                          <>
+                            <tr
+                              key={item.key}
+                              className="border-b border-rose-gold-50 hover:bg-peach-soft/30 transition-colors"
+                            >
+                              <td className="py-3.5 px-4">
+                                <div className="flex items-center gap-2.5">
+                                  <div
+                                    className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+                                    style={{
+                                      background:
+                                        dealQualityDim === 'consultant'
+                                          ? 'linear-gradient(135deg, #D4A574, #C8965F)'
+                                          : dealQualityDim === 'channel'
+                                          ? 'linear-gradient(135deg, #FF6B6B, #FFB36B)'
+                                          : 'linear-gradient(135deg, #4ECDC4, #6EE7DE)',
+                                    }}
+                                  >
+                                    <ShoppingBag className="w-4 h-4 text-white" />
+                                  </div>
+                                  <span className="text-sm font-medium text-ink">{item.name}</span>
+                                </div>
+                              </td>
+                              <td className="py-3.5 px-4 text-center">
+                                <span className="text-base font-bold text-coral">{item.dealCount}</span>
+                                <span className="text-xs text-ink-soft ml-0.5">单</span>
+                              </td>
+                              <td className="py-3.5 px-4 text-center">
+                                <span className="text-base font-bold text-mint">
+                                  {item.totalAmount >= 10000
+                                    ? `${(item.totalAmount / 10000).toFixed(1)}万`
+                                    : `¥${item.totalAmount}`}
+                                </span>
+                              </td>
+                              <td className="py-3.5 px-4 text-center">
+                                <span className="text-base font-bold text-rose-gold-500">
+                                  {item.avgUnitPrice >= 10000
+                                    ? `${(item.avgUnitPrice / 10000).toFixed(1)}万`
+                                    : `¥${Math.round(item.avgUnitPrice)}`}
+                                </span>
+                              </td>
+                              <td className="py-3.5 px-4 text-center">
+                                <span className="text-base font-bold text-ink">
+                                  {item.avgCycleDays.toFixed(1)}
+                                </span>
+                                <span className="text-xs text-ink-soft ml-0.5">天</span>
+                              </td>
+                              <td className="py-3.5 px-4 text-center">
+                                <button
+                                  onClick={() =>
+                                    setExpandedDealQualityKey(isExpanded ? null : item.key)
+                                  }
+                                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-all bg-rose-gold-50 text-rose-gold-600 hover:bg-rose-gold-100"
+                                >
+                                  <Eye size={12} />
+                                  查看客户
+                                  {isExpanded ? (
+                                    <ChevronUp size={12} />
+                                  ) : (
+                                    <ChevronDown size={12} />
+                                  )}
+                                </button>
+                              </td>
+                            </tr>
+                            {isExpanded && (
+                              <tr>
+                                <td colSpan={6} className="py-0">
+                                  <AnimatePresence>
+                                    <motion.div
+                                      initial={{ height: 0, opacity: 0 }}
+                                      animate={{ height: 'auto', opacity: 1 }}
+                                      exit={{ height: 0, opacity: 0 }}
+                                      transition={{ duration: 0.3 }}
+                                      className="overflow-hidden"
+                                    >
+                                      <div className="bg-peach-soft/30 p-4 border-t border-rose-gold-50">
+                                        <div className="flex items-center justify-between mb-3">
+                                          <h4 className="font-semibold text-ink text-xs flex items-center gap-1.5">
+                                            <ShoppingBag className="w-3.5 h-3.5 text-mint" />
+                                            {item.name} · 成交客户明细
+                                          </h4>
+                                          <span className="text-[11px] text-ink-soft">
+                                            共 {item.customers.length} 人
+                                          </span>
+                                        </div>
+                                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                                          {item.customers.map((cust) => {
+                                            const dealDate = cust.deal_at ?? cust.created_at;
+                                            const dealAmount = cust.deal_amount ?? 0;
+                                            const amountStr =
+                                              dealAmount >= 10000
+                                                ? `${(dealAmount / 10000).toFixed(1)}万`
+                                                : `¥${dealAmount}`;
+                                            return (
+                                              <motion.div
+                                                key={cust.id}
+                                                layout
+                                                initial={{ opacity: 0, y: 8 }}
+                                                animate={{ opacity: 1, y: 0 }}
+                                                onClick={() =>
+                                                  navigate(`/customers/${cust.id}/profile`)
+                                                }
+                                                className="group rounded-xl border bg-white p-3 cursor-pointer transition-all duration-300 border-mint/20 hover:shadow-card-hover hover:-translate-y-0.5 hover:border-mint"
+                                              >
+                                                <div className="flex items-center gap-2 mb-2">
+                                                  <div
+                                                    className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-serif font-bold text-white"
+                                                    style={{
+                                                      background:
+                                                        'linear-gradient(135deg, #4ECDC4, #D4A574)',
+                                                    }}
+                                                  >
+                                                    {cust.name.charAt(0)}
+                                                  </div>
+                                                  <div className="min-w-0">
+                                                    <p className="text-sm font-medium text-ink truncate">
+                                                      {cust.name}
+                                                    </p>
+                                                    <p className="text-[10px] text-ink-soft">
+                                                      {dealDate}
+                                                    </p>
+                                                  </div>
+                                                </div>
+                                                <div className="flex items-center justify-between mb-1.5">
+                                                  <span className="text-xs text-ink-soft">成交金额</span>
+                                                  <span className="text-sm font-bold text-mint">
+                                                    {amountStr}
+                                                  </span>
+                                                </div>
+                                                <div className="flex flex-wrap gap-1">
+                                                  {(cust.deal_projects ?? cust.projects)
+                                                    .slice(0, 2)
+                                                    .map((p) => (
+                                                      <span
+                                                        key={p}
+                                                        className="text-[10px] px-1.5 py-0.5 rounded bg-peach-soft text-ink-soft"
+                                                      >
+                                                        {p}
+                                                      </span>
+                                                    ))}
+                                                  {(cust.deal_projects ?? cust.projects).length >
+                                                    2 && (
+                                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-peach-soft text-ink-soft">
+                                                      +
+                                                      {(cust.deal_projects ?? cust.projects)
+                                                        .length - 2}
+                                                    </span>
+                                                  )}
+                                                </div>
+                                              </motion.div>
+                                            );
+                                          })}
+                                        </div>
+                                      </div>
+                                    </motion.div>
+                                  </AnimatePresence>
+                                </td>
+                              </tr>
+                            )}
+                          </>
+                        );
+                      });
+                    })()}
+                  </tbody>
+                </table>
+              </div>
+            </motion.div>
+
+            <motion.div variants={fadeInUp} className="card p-6">
+              <h3 className="section-title !mb-0 mb-5 flex items-center gap-2">
+                <PieChartIcon size={18} className="text-rose-gold-500" />
+                客户反馈与未成交
+              </h3>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                <div className="rounded-2xl p-5 border border-rose-gold-100 bg-gradient-to-br from-peach-soft/30 to-transparent">
+                  <h4 className="font-semibold text-ink text-sm mb-4 flex items-center gap-2">
+                    <BarChart3 size={14} className="text-rose-gold-500" />
+                    跟进反馈标签 Top5
+                  </h4>
+                  <div className="h-[240px]">
+                    {feedbackTagDistribution.length === 0 ? (
+                      <div className="h-full flex items-center justify-center text-ink-soft/50 text-xs">
+                        暂无反馈标签数据
+                      </div>
+                    ) : (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart
+                          data={feedbackTagDistribution}
+                          layout="vertical"
+                          margin={{ top: 5, right: 20, left: 10, bottom: 5 }}
+                        >
+                          <XAxis type="number" hide domain={[0, 'dataMax']} />
+                          <YAxis
+                            type="category"
+                            dataKey="name"
+                            tick={{ fill: '#4A5A82', fontSize: 12 }}
+                            axisLine={false}
+                            tickLine={false}
+                            width={80}
+                          />
+                          <Tooltip
+                            cursor={{ fill: '#FBF7F2' }}
+                            contentStyle={{
+                              borderRadius: '12px',
+                              border: '1px solid #EDDAC4',
+                              boxShadow: '0 4px 20px rgba(30,42,74,0.08)',
+                              fontSize: '12px',
+                            }}
+                            formatter={(val: number) => [`${val} 次`, '数量']}
+                          />
+                          <Bar
+                            dataKey="count"
+                            radius={[0, 8, 8, 0]}
+                            barSize={22}
+                            fill="url(#feedbackBarGradient)"
+                          />
+                          <defs>
+                            <linearGradient id="feedbackBarGradient" x1="0" y1="0" x2="1" y2="0">
+                              <stop offset="0%" stopColor="#D4A574" />
+                              <stop offset="100%" stopColor="#FF6B6B" />
+                            </linearGradient>
+                          </defs>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl p-5 border border-coral/15 bg-gradient-to-br from-coral/5 to-transparent">
+                  <h4 className="font-semibold text-ink text-sm mb-4 flex items-center gap-2">
+                    <PieChartIcon size={14} className="text-coral" />
+                    未成交原因排行
+                  </h4>
+                  <div className="h-[240px]">
+                    {undealReasonDistribution.length === 0 ? (
+                      <div className="h-full flex items-center justify-center text-ink-soft/50 text-xs">
+                        暂无未成交原因数据
+                      </div>
+                    ) : (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={undealReasonDistribution}
+                            cx="50%"
+                            cy="48%"
+                            innerRadius={48}
+                            outerRadius={78}
+                            paddingAngle={2}
+                            dataKey="value"
+                            strokeWidth={0}
+                          >
+                            {undealReasonDistribution.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={entry.color} />
+                            ))}
+                          </Pie>
+                          <Tooltip
+                            formatter={(val: number, name: string) => [`${val} 次`, name]}
+                            contentStyle={{
+                              borderRadius: '12px',
+                              border: '1px solid #EDDAC4',
+                              boxShadow: '0 4px 20px rgba(30,42,74,0.08)',
+                              fontSize: '12px',
+                            }}
+                          />
+                          <Legend
+                            verticalAlign="bottom"
+                            iconType="circle"
+                            iconSize={8}
+                            height={36}
+                            formatter={(value) => (
+                              <span className="text-xs text-ink-soft">{value}</span>
+                            )}
+                          />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    )}
+                  </div>
+                </div>
+              </div>
             </motion.div>
 
             <motion.div variants={fadeInUp} className="card p-6">

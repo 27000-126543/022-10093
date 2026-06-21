@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { useCustomerStore } from '@/store/customerStore';
 import { cn } from '@/lib/utils';
-import { TIER_CONFIG } from '@/constants/dictionaries';
+import { TIER_CONFIG, FOLLOW_UP_TEMPLATES, FOLLOW_UP_RESULT_TAGS } from '@/constants/dictionaries';
 import type { FollowUpTask, Customer } from '@/types';
 
 type TabType = 'all' | 'today' | 'overdue' | 'completed';
@@ -86,6 +86,7 @@ export default function TaskList() {
   const [followNote, setFollowNote] = useState('');
   const [nextDate, setNextDate] = useState(addDays(3));
   const [expandedScript, setExpandedScript] = useState<string | null>(null);
+  const [selectedFeedbackTag, setSelectedFeedbackTag] = useState<string | null>(null);
 
   useEffect(() => {
     if (customers.length === 0) {
@@ -186,6 +187,7 @@ export default function TaskList() {
     setFollowMethod('wechat');
     setFollowNote('');
     setNextDate(addDays(3));
+    setSelectedFeedbackTag(null);
   };
 
   const handleSaveFollow = () => {
@@ -194,6 +196,7 @@ export default function TaskList() {
       follow_up_method: followMethod,
       follow_up_note: followNote,
       next_follow_up: nextDate,
+      feedback_tag: selectedFeedbackTag ?? undefined,
     });
     completeTask(selectedTask.id);
     if (nextDate && nextDate.trim()) {
@@ -630,6 +633,26 @@ export default function TaskList() {
 
                 <div>
                   <label className="block text-sm font-medium text-ink mb-2">
+                    跟进模板
+                  </label>
+                  <div className="flex gap-2 overflow-x-auto pb-1">
+                    {FOLLOW_UP_TEMPLATES.map((template) => (
+                      <button
+                        key={template.name}
+                        onClick={() => {
+                          setFollowMethod(template.method);
+                          setFollowNote(template.script);
+                        }}
+                        className="tag-pill tag-pill-default text-xs whitespace-nowrap flex-shrink-0 hover:bg-peach-deep transition-colors"
+                      >
+                        {template.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-ink mb-2">
                     跟进记录
                   </label>
                   <textarea
@@ -639,6 +662,32 @@ export default function TaskList() {
                     rows={4}
                     className="input-base resize-none"
                   />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-ink mb-2">
+                    客户反馈结果
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {FOLLOW_UP_RESULT_TAGS.map((tag) => (
+                      <button
+                        key={tag}
+                        onClick={() =>
+                          setSelectedFeedbackTag(
+                            selectedFeedbackTag === tag ? null : tag
+                          )
+                        }
+                        className={cn(
+                          'tag-pill text-xs cursor-pointer transition-all',
+                          selectedFeedbackTag === tag
+                            ? 'tag-pill-active'
+                            : 'tag-pill-default'
+                        )}
+                      >
+                        {tag}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 <div>

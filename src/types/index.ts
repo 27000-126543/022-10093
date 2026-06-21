@@ -43,6 +43,7 @@ export interface FollowUpTask {
   follow_up_method?: 'wechat' | 'phone' | 'visit';
   follow_up_note?: string;
   next_follow_up?: string;
+  feedback_tag?: string;
 }
 
 export interface VisitRecord {
@@ -57,6 +58,7 @@ export interface VisitRecord {
   follow_up_note?: string;
   next_follow_up?: string;
   priority?: 'high' | 'medium' | 'low';
+  feedback_tag?: string;
 }
 
 export interface Consultant {

@@ -13,6 +13,7 @@ import {
   Edit2,
   ChevronDown,
   Check,
+  CheckCircle2,
   User,
   Stethoscope,
   Smile,
@@ -20,13 +21,16 @@ import {
   AlertTriangle,
   Calendar,
   Sparkles,
+  MessageCircle,
+  Phone,
+  Store,
 } from 'lucide-react';
 import { useCustomerStore } from '@/store/customerStore';
 import { UNDEAL_REASONS, PROJECTS } from '@/constants/dictionaries';
 import { cn } from '@/lib/utils';
 import type { Customer, VisitRecord } from '@/types';
 
-type RecordType = 'consultation' | 'follow_up' | 'post_op';
+type RecordType = 'consultation' | 'follow_up' | 'post_op' | 'follow_up_done';
 type DealStatus = 'deal' | 'partial' | 'lost';
 
 interface EnrichedRecord extends VisitRecord {
@@ -54,6 +58,12 @@ const RECORD_TYPE_CONFIG: Record<
     color: '#4ECDC4',
     bgColor: '#E5F9F7',
     borderColor: '#7DE3DC',
+  },
+  follow_up_done: {
+    label: '跟进完成',
+    color: '#4A90D9',
+    bgColor: '#E8F0FB',
+    borderColor: '#7FB1E8',
   },
 };
 
@@ -133,6 +143,12 @@ export default function VisitRecords() {
       (r) => r.record_type === 'follow_up'
     ).length;
 
+    const followUpDoneCount = records.filter(
+      (r) => r.record_type === 'follow_up_done'
+    ).length;
+
+    const totalRecordsCount = records.length;
+
     const recordsWithSatisfaction = records.filter(
       (r) => r.satisfaction !== undefined
     );
@@ -164,6 +180,8 @@ export default function VisitRecords() {
 
     return {
       revisitCount,
+      followUpDoneCount,
+      totalRecordsCount,
       avgSatisfaction: Math.round(avgSatisfaction * 10) / 10,
       conversionRate,
       topReason: topReason ?? '暂无数据',
@@ -256,14 +274,31 @@ export default function VisitRecords() {
     setSelectedUndealReason('');
   };
 
-  const statCards = [
+  const statCards: Array<{
+    label: string;
+    value: number | string;
+    suffix: string;
+    icon: React.ReactNode;
+    color: string;
+    bg: string;
+    isStars?: boolean;
+    isText?: boolean;
+  }> = [
     {
-      label: '本月复诊数',
-      value: monthlyStats.revisitCount,
-      suffix: '次',
+      label: '总记录数',
+      value: monthlyStats.totalRecordsCount,
+      suffix: '条',
       icon: <Calendar className="w-5 h-5" />,
       color: 'text-rose-gold-500',
       bg: 'bg-rose-gold-soft',
+    },
+    {
+      label: '跟进完成数',
+      value: monthlyStats.followUpDoneCount,
+      suffix: '次',
+      icon: <CheckCircle2 className="w-5 h-5" />,
+      color: 'text-blue-500',
+      bg: 'bg-blue-50',
     },
     {
       label: '平均满意度',
@@ -281,15 +316,6 @@ export default function VisitRecords() {
       icon: <TrendingUp className="w-5 h-5" />,
       color: 'text-coral',
       bg: 'bg-coral-soft',
-    },
-    {
-      label: '未成交TOP1',
-      value: monthlyStats.topReason,
-      suffix: '',
-      icon: <AlertTriangle className="w-5 h-5" />,
-      color: 'text-orange-500',
-      bg: 'bg-orange-50',
-      isText: true,
     },
   ];
 
@@ -567,11 +593,79 @@ export default function VisitRecords() {
                                 {record.satisfaction}/5
                               </span>
                             </div>
-                            {record.note && (
-                              <p className="text-sm text-ink leading-relaxed">
-                                {record.note}
-                              </p>
+
+                            {record.record_type === 'follow_up_done' ? (
+                              <div className="space-y-2">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  {record.follow_up_method && (
+                                    <span className="tag-pill tag-pill-default text-xs">
+                                      {record.follow_up_method === 'wechat' && (
+                                        <MessageCircle className="w-3.5 h-3.5" />
+                                      )}
+                                      {record.follow_up_method === 'phone' && (
+                                        <Phone className="w-3.5 h-3.5" />
+                                      )}
+                                      {record.follow_up_method === 'visit' && (
+                                        <Store className="w-3.5 h-3.5" />
+                                      )}
+                                      {record.follow_up_method === 'wechat'
+                                        ? '微信'
+                                        : record.follow_up_method === 'phone'
+                                        ? '电话'
+                                        : record.follow_up_method === 'visit'
+                                        ? '到店'
+                                        : record.follow_up_method}
+                                    </span>
+                                  )}
+                                  {record.priority && (
+                                    <span className="tag-pill tag-pill-default text-xs">
+                                      <span
+                                        className={cn(
+                                          'w-2 h-2 rounded-full',
+                                          record.priority === 'high'
+                                            ? 'bg-coral'
+                                            : record.priority === 'medium'
+                                            ? 'bg-orange-400'
+                                            : 'bg-yellow-400'
+                                        )}
+                                      />
+                                      {record.priority === 'high'
+                                        ? '高优先级'
+                                        : record.priority === 'medium'
+                                        ? '中优先级'
+                                        : '低优先级'}
+                                    </span>
+                                  )}
+                                  {record.next_follow_up && (
+                                    <span className="tag-pill tag-pill-default text-xs">
+                                      <Calendar className="w-3.5 h-3.5" />
+                                      下次：{record.next_follow_up}
+                                    </span>
+                                  )}
+                                </div>
+                                {record.follow_up_note && (
+                                  <p className="text-sm text-ink leading-relaxed">
+                                    {record.follow_up_note}
+                                  </p>
+                                )}
+                                {record.feedback_tag && (
+                                  <div className="flex flex-wrap gap-1.5">
+                                    <span className="tag-pill tag-pill-active text-xs">
+                                      {record.feedback_tag}
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <>
+                                {record.note && (
+                                  <p className="text-sm text-ink leading-relaxed">
+                                    {record.note}
+                                  </p>
+                                )}
+                              </>
                             )}
+
                             {record.undeal_reason && (
                               <div className="mt-2 inline-flex items-center gap-1 px-2 py-1 bg-coral-soft text-coral text-xs rounded-lg">
                                 <AlertTriangle className="w-3 h-3" />

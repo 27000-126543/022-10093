@@ -42,6 +42,32 @@ interface PersistedData {
   consultants: Consultant[];
 }
 
+interface DealDimensionItem {
+  key: string;
+  deal_count: number;
+  total_amount: number;
+  avg_price: number;
+  avg_cycle: number;
+  customer_ids: string[];
+}
+
+interface DealAnalytics {
+  byProject: DealDimensionItem[];
+  byChannel: DealDimensionItem[];
+  byConsultant: DealDimensionItem[];
+  summary: {
+    total_deals: number;
+    total_amount: number;
+    avg_price: number;
+    avg_cycle: number;
+  };
+}
+
+interface FeedbackTagStats {
+  tags: Array<{ tag: string; count: number }>;
+  undeal_reasons: Array<{ reason: string; count: number }>;
+}
+
 interface CustomerStore {
   customers: Customer[];
   tasks: FollowUpTask[];
@@ -67,6 +93,8 @@ interface CustomerStore {
   getCustomersByConsultant: (consultantId: string) => Customer[];
   getDealsByDateRange: (startDate: string, endDate: string) => Customer[];
   getDealsByConsultantInRange: (consultantId: string, startDate: string, endDate: string) => Customer[];
+  getDealAnalytics: (rangeStart: string, rangeEnd: string) => DealAnalytics;
+  getFeedbackTagStats: () => FeedbackTagStats;
 }
 
 export const useCustomerStore = create<CustomerStore>((set, get) => ({
@@ -285,6 +313,7 @@ export const useCustomerStore = create<CustomerStore>((set, get) => ({
         follow_up_note: task.follow_up_note,
         next_follow_up: task.next_follow_up,
         priority: task.priority,
+        feedback_tag: task.feedback_tag,
         note: autoNote,
         created_at: now,
       };
@@ -421,5 +450,105 @@ export const useCustomerStore = create<CustomerStore>((set, get) => ({
       const dateStr = c.deal_at || c.created_at;
       return dateStr >= startDate && dateStr <= endDate;
     });
+  },
+
+  getDealAnalytics: (rangeStart, rangeEnd) => {
+    const state = get();
+    const dealCustomers = state.customers.filter((c) => {
+      if (c.status !== 'deal') return false;
+      const dateStr = c.deal_at || c.created_at;
+      return dateStr >= rangeStart && dateStr <= rangeEnd;
+    });
+
+    function daysBetweenStr(start: string, end: string): number {
+      const s = new Date(start);
+      const e = new Date(end);
+      return Math.max(0, Math.floor((e.getTime() - s.getTime()) / (1000 * 60 * 60 * 24)));
+    }
+
+    function aggregateBy(
+      items: Customer[],
+      getKey: (c: Customer) => string[]
+    ): DealDimensionItem[] {
+      const map: Record<string, DealDimensionItem> = {};
+      items.forEach((c) => {
+        const keys = getKey(c);
+        keys.forEach((key) => {
+          if (!map[key]) {
+            map[key] = {
+              key,
+              deal_count: 0,
+              total_amount: 0,
+              avg_price: 0,
+              avg_cycle: 0,
+              customer_ids: [],
+            };
+          }
+          const amount = c.deal_amount ?? 0;
+          const cycle = daysBetweenStr(c.created_at, c.deal_at || c.created_at);
+          map[key].deal_count += 1;
+          map[key].total_amount += amount;
+          map[key].avg_cycle += cycle;
+          map[key].customer_ids.push(c.id);
+        });
+      });
+      return Object.values(map).map((item) => ({
+        ...item,
+        avg_price: item.deal_count > 0 ? item.total_amount / item.deal_count : 0,
+        avg_cycle: item.deal_count > 0 ? item.avg_cycle / item.deal_count : 0,
+      }));
+    }
+
+    const byProject = aggregateBy(dealCustomers, (c) => c.deal_projects?.length ? c.deal_projects : ['未指定项目']);
+    const byChannel = aggregateBy(dealCustomers, (c) => [c.channel || '未指定渠道']);
+    const byConsultant = aggregateBy(dealCustomers, (c) => [c.consultant_id || '未指定咨询师']);
+
+    const total_deals = dealCustomers.length;
+    const total_amount = dealCustomers.reduce((s, c) => s + (c.deal_amount ?? 0), 0);
+    const total_cycles = dealCustomers.reduce(
+      (s, c) => s + daysBetweenStr(c.created_at, c.deal_at || c.created_at),
+      0
+    );
+
+    return {
+      byProject,
+      byChannel,
+      byConsultant,
+      summary: {
+        total_deals,
+        total_amount,
+        avg_price: total_deals > 0 ? total_amount / total_deals : 0,
+        avg_cycle: total_deals > 0 ? total_cycles / total_deals : 0,
+      },
+    };
+  },
+
+  getFeedbackTagStats: () => {
+    const state = get();
+    const followUpRecords = state.records.filter(
+      (r) => r.record_type === 'follow_up_done'
+    );
+
+    const tagCounts: Record<string, number> = {};
+    followUpRecords.forEach((r) => {
+      if (r.feedback_tag) {
+        tagCounts[r.feedback_tag] = (tagCounts[r.feedback_tag] ?? 0) + 1;
+      }
+    });
+    const tags = Object.entries(tagCounts)
+      .map(([tag, count]) => ({ tag, count }))
+      .sort((a, b) => b.count - a.count);
+
+    const reasonCounts: Record<string, number> = {};
+    state.records.forEach((r) => {
+      if (r.undeal_reason) {
+        reasonCounts[r.undeal_reason] = (reasonCounts[r.undeal_reason] ?? 0) + 1;
+      }
+    });
+    const undeal_reasons = Object.entries(reasonCounts)
+      .map(([reason, count]) => ({ reason, count }))
+      .sort((a, b) => b.count - a.count);
+
+    return { tags, undeal_reasons };
   },
 }));

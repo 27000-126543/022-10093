@@ -34,6 +34,11 @@ import {
   ShoppingBag,
   Tag,
   Info,
+  Clock,
+  MessageCircle,
+  Send,
+  Home,
+  Hash,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -247,17 +252,27 @@ export default function CustomerProfile() {
         (r) => r.customer_id === customer.id && r.record_type === 'follow_up_done'
       )
       .sort(
-        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
       );
 
-    const sourceFollowUpRecord =
-      followUpDoneRecords.length > 0
-        ? followUpDoneRecords[followUpDoneRecords.length - 1]
-        : null;
+    const completedTasksCount = tasks.filter(
+      (t) => t.customer_id === customer.id && t.completed
+    ).length;
+
+    const totalFollowUpCount = followUpDoneRecords.length + completedTasksCount;
+
+    const calcDealCycleDays = (): number => {
+      const d1 = new Date(customer.created_at);
+      const d2 = new Date(dealDate);
+      const diff = Math.floor((d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24));
+      return Math.max(0, diff);
+    };
+
+    const dealCycleDays = calcDealCycleDays();
 
     const lastFollowUpRecord =
       followUpDoneRecords.length > 0
-        ? followUpDoneRecords[followUpDoneRecords.length - 1]
+        ? followUpDoneRecords[0]
         : tasks
             .filter((t) => t.customer_id === customer.id && t.completed)
             .sort(
@@ -278,22 +293,28 @@ export default function CustomerProfile() {
       low: '低优先级',
     };
 
+    const recentFollowUps = followUpDoneRecords.slice(0, 3).map((r) => ({
+      id: r.id,
+      date: r.created_at,
+      method: r.follow_up_method ? methodLabel[r.follow_up_method] ?? r.follow_up_method : undefined,
+      methodKey: r.follow_up_method,
+      priority: r.priority,
+      priorityLabel: r.priority ? priorityLabel[r.priority] : undefined,
+      feedbackTag: r.feedback_tag,
+      note: r.follow_up_note ?? r.note ?? '',
+    }));
+
     return {
       status: customer.status,
       dealDate,
       dealAmount: formatAmount(customer.deal_amount),
+      dealAmountRaw: customer.deal_amount ?? 0,
       dealProjects: customer.deal_projects ?? [],
       channel: customer.channel,
       undealReason: customer.undeal_reason,
-      sourceRecord: sourceFollowUpRecord
-        ? {
-            method: methodLabel[sourceFollowUpRecord.follow_up_method ?? ''] ?? undefined,
-            priority: sourceFollowUpRecord.priority
-              ? priorityLabel[sourceFollowUpRecord.priority]
-              : undefined,
-            note: sourceFollowUpRecord.follow_up_note ?? sourceFollowUpRecord.note,
-          }
-        : null,
+      dealCycleDays,
+      totalFollowUpCount,
+      recentFollowUps,
       lastRecord: lastFollowUpRecord
         ? {
             date:
@@ -313,6 +334,29 @@ export default function CustomerProfile() {
         : null,
     };
   }, [customer, records, tasks]);
+
+  const feedbackTagStats = useMemo(() => {
+    if (!customer) return [] as { tag: string; count: number }[];
+    const customerRecords = records.filter(
+      (r) => r.customer_id === customer.id && r.record_type === 'follow_up_done' && r.feedback_tag
+    );
+    const map = new Map<string, number>();
+    customerRecords.forEach((r) => {
+      if (r.feedback_tag) {
+        map.set(r.feedback_tag, (map.get(r.feedback_tag) ?? 0) + 1);
+      }
+    });
+    return Array.from(map.entries())
+      .map(([tag, count]) => ({ tag, count }))
+      .sort((a, b) => b.count - a.count);
+  }, [customer, records]);
+
+  const scrollToTimeline = () => {
+    const el = document.getElementById('customer-timeline');
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
 
   const handleCreateTask = () => {
     if (!customer) return;
@@ -813,132 +857,235 @@ export default function CustomerProfile() {
         </motion.div>
 
         {dealReviewData && (
-          <motion.div variants={itemVariants} className="mt-6">
-            <div className="card p-6 card-hover">
-              <h2 className="section-title mb-5">成交复盘</h2>
+          <div className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <motion.div variants={itemVariants} className="lg:col-span-2">
+              <div className="card p-6 card-hover h-full">
+                <h2 className="section-title mb-5">
+                  {dealReviewData.status === 'deal' ? '主管成交复盘卡' :
+                   dealReviewData.status === 'lost' ? '未成交复盘卡' : '成交复盘'}
+                </h2>
 
-              {dealReviewData.status === 'deal' && (
-                <div
-                  className="rounded-xl p-5 border-2"
-                  style={{ borderColor: '#4ECDC4', backgroundColor: '#4ECDC408' }}
-                >
-                  <div className="flex items-center gap-3 mb-4">
-                  <div
-                    className="w-10 h-10 rounded-xl flex items-center justify-center"
-                    style={{ backgroundColor: '#4ECDC420' }}
-                  >
-                    <ShoppingBag className="w-5 h-5" style={{ color: '#4ECDC4' }} />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-ink">已成交</h3>
-                    <p className="text-xs text-ink-soft">恭喜成交记录已归档</p>
-                  </div>
-                </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <p className="text-xs text-ink-soft mb-1">成交时间</p>
-                      <p className="text-sm font-semibold text-ink">{dealReviewData.dealDate}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-ink-soft mb-1">成交金额</p>
-                      <p className="text-sm font-semibold text-mint">{dealReviewData.dealAmount}</p>
-                    </div>
-                    <div className="col-span-2">
-                      <p className="text-xs text-ink-soft mb-2">成交项目</p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {dealReviewData.dealProjects.length > 0 ? (
-                          dealReviewData.dealProjects.map((p) => (
-                            <span
-                              key={p}
-                              className="text-[11px] px-2 py-0.5 rounded-full font-medium"
-                              style={{ backgroundColor: '#4ECDC420', color: '#4ECDC4' }}
-                            >
-                              {p}
-                            </span>
-                          ))
-                        ) : (
-                          <span className="text-xs text-ink-soft">暂无项目记录</span>
-                        )}
-                      </div>
-                    </div>
-                    <div>
-                      <p className="text-xs text-ink-soft mb-2">来源渠道</p>
-                      <span className="inline-flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-full bg-peach-soft text-ink-soft font-medium">
-                        <Tag className="w-3 h-3" />
-                        {dealReviewData.channel}
-                      </span>
-                    </div>
-                    <div className="col-span-2">
-                      <p className="text-xs text-ink-soft mb-1.5">来源跟进记录</p>
-                      {dealReviewData.sourceRecord ? (
-                        <div className="rounded-lg p-3 bg-white/60 border border-mint/20">
-                          <div className="flex items-center gap-2 mb-1 flex-wrap">
-                            {dealReviewData.sourceRecord.method && (
-                              <span className="text-[11px] px-2 py-0.5 rounded-full bg-peach-soft text-ink-soft font-medium">
-                                {dealReviewData.sourceRecord.method}
-                              </span>
-                            )}
-                            {dealReviewData.sourceRecord.priority && (
-                              <span
-                                className="text-[11px] px-2 py-0.5 rounded-full font-medium"
-                                style={{ backgroundColor: '#4ECDC420', color: '#4ECDC4' }}
-                              >
-                                {dealReviewData.sourceRecord.priority}
-                              </span>
+                {dealReviewData.status === 'deal' && (
+                  <div className="space-y-5">
+                    <div className="rounded-2xl p-5 border-2" style={{ borderColor: '#4ECDC450', background: 'linear-gradient(135deg, #4ECDC408 0%, #FFFFFF 100%)' }}>
+                      <div className="flex items-start justify-between gap-4 flex-wrap">
+                        <div className="flex items-center gap-4">
+                          <div
+                            className="w-16 h-16 rounded-2xl flex items-center justify-center text-2xl font-serif font-bold text-white shadow-lg"
+                            style={{
+                              background: `linear-gradient(135deg, ${tierConfig.color}, #D4A574)`,
+                            }}
+                          >
+                            {customer!.name.charAt(0)}
+                          </div>
+                          <div>
+                            <h3 className="font-serif text-xl font-bold text-ink">{customer!.name}</h3>
+                            <div className="flex items-center gap-2 mt-1">
+                              <Calendar size={13} className="text-ink-soft" />
+                              <span className="text-xs text-ink-soft">成交于 {dealReviewData.dealDate}</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="flex items-baseline justify-end gap-1">
+                            <span className="text-4xl font-serif font-bold text-mint">{dealReviewData.dealAmount}</span>
+                          </div>
+                          <div className="flex flex-wrap gap-1.5 mt-2 justify-end">
+                            {dealReviewData.dealProjects.length > 0 ? (
+                              dealReviewData.dealProjects.map((p) => (
+                                <span
+                                  key={p}
+                                  className="text-[11px] px-2.5 py-1 rounded-full font-medium"
+                                  style={{ backgroundColor: '#4ECDC418', color: '#4ECDC4' }}
+                                >
+                                  {p}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="text-xs text-ink-soft">暂无项目记录</span>
                             )}
                           </div>
-                          {dealReviewData.sourceRecord.note && (
-                            <p className="text-xs text-ink-soft leading-relaxed">
-                              {dealReviewData.sourceRecord.note}
-                            </p>
-                          )}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-3 mt-5">
+                        <div className="rounded-xl p-3.5 bg-white/70 border border-mint/15">
+                          <div className="flex items-center gap-1.5 mb-1.5">
+                            <Clock size={12} className="text-rose-gold-400" />
+                            <span className="text-[11px] text-ink-soft">成交周期</span>
+                          </div>
+                          <p className="text-lg font-bold text-ink">
+                            {dealReviewData.dealCycleDays} <span className="text-xs font-normal text-ink-soft">天</span>
+                          </p>
+                        </div>
+                        <div className="rounded-xl p-3.5 bg-white/70 border border-mint/15">
+                          <div className="flex items-center gap-1.5 mb-1.5">
+                            <MessageCircle size={12} className="text-rose-gold-400" />
+                            <span className="text-[11px] text-ink-soft">跟进次数</span>
+                          </div>
+                          <p className="text-lg font-bold text-ink">
+                            {dealReviewData.totalFollowUpCount} <span className="text-xs font-normal text-ink-soft">次</span>
+                          </p>
+                        </div>
+                        <div className="rounded-xl p-3.5 bg-white/70 border border-mint/15">
+                          <div className="flex items-center gap-1.5 mb-1.5">
+                            <Tag size={12} className="text-rose-gold-400" />
+                            <span className="text-[11px] text-ink-soft">来源渠道</span>
+                          </div>
+                          <p className="text-sm font-bold text-ink truncate">{dealReviewData.channel}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl p-5 border border-rose-gold-100 bg-gradient-to-br from-peach-soft/40 to-transparent">
+                      <div className="flex items-center justify-between mb-4">
+                        <h4 className="font-semibold text-ink flex items-center gap-2 text-sm">
+                          <Sparkles size={14} className="text-rose-gold-500" />
+                          成交路径时间线摘要
+                        </h4>
+                        <button
+                          onClick={scrollToTimeline}
+                          className="flex items-center gap-1 text-xs font-medium text-rose-gold-500 hover:text-coral transition-colors group"
+                        >
+                          查看完整成交路径
+                          <ChevronRight size={13} className="group-hover:translate-x-0.5 transition-transform" />
+                        </button>
+                      </div>
+
+                      {dealReviewData.recentFollowUps.length > 0 ? (
+                        <div className="relative">
+                          <div className="absolute left-[9px] top-2 bottom-2 w-px bg-gradient-to-b from-mint via-rose-gold-200 to-transparent" />
+                          <div className="space-y-4">
+                            {dealReviewData.recentFollowUps.map((fu, idx) => {
+                              const priorityColors: Record<string, { bg: string; color: string }> = {
+                                high: { bg: '#FF6B6B18', color: '#FF6B6B' },
+                                medium: { bg: '#F59E0B18', color: '#F59E0B' },
+                                low: { bg: '#9CA3AF18', color: '#9CA3AF' },
+                              };
+                              const pColor = fu.priority ? priorityColors[fu.priority] : null;
+                              return (
+                                <div key={fu.id} className="relative flex gap-3 pl-0.5">
+                                  <div
+                                    className="relative z-10 w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 mt-1 shadow-sm"
+                                    style={{ backgroundColor: idx === 0 ? '#4ECDC4' : '#D4A574' }}
+                                  >
+                                    {fu.methodKey === 'wechat' ? (
+                                      <MessageCircle className="w-2.5 h-2.5 text-white" />
+                                    ) : fu.methodKey === 'phone' ? (
+                                      <Phone className="w-2.5 h-2.5 text-white" />
+                                    ) : fu.methodKey === 'visit' ? (
+                                      <Home className="w-2.5 h-2.5 text-white" />
+                                    ) : (
+                                      <Send className="w-2.5 h-2.5 text-white" />
+                                    )}
+                                  </div>
+                                  <div className="flex-1 min-w-0 pt-0.5">
+                                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                                      <span className="text-[11px] text-ink-soft font-medium">{fu.date}</span>
+                                      {fu.method && (
+                                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-peach-soft text-ink-soft font-medium">
+                                          {fu.method}
+                                        </span>
+                                      )}
+                                      {fu.priorityLabel && pColor && (
+                                        <span
+                                          className="text-[10px] px-2 py-0.5 rounded-full font-medium"
+                                          style={{ backgroundColor: pColor.bg, color: pColor.color }}
+                                        >
+                                          {fu.priorityLabel}
+                                        </span>
+                                      )}
+                                      {fu.feedbackTag && (
+                                        <span className="text-[10px] px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: '#4ECDC418', color: '#4ECDC4' }}>
+                                          <Hash size={9} className="inline mr-0.5 -mt-0.5" />
+                                          {fu.feedbackTag}
+                                        </span>
+                                      )}
+                                    </div>
+                                    {fu.note && (
+                                      <p className="text-xs text-ink-soft leading-relaxed line-clamp-2">
+                                        {fu.note}
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
                         </div>
                       ) : (
-                        <p className="text-xs text-ink-soft">暂无对应跟进记录</p>
+                        <div className="text-center py-6 text-ink-soft/50 text-xs">
+                          暂无跟进完成记录
+                        </div>
                       )}
                     </div>
                   </div>
-                </div>
-              )}
+                )}
 
-              {dealReviewData.status === 'lost' && (
-                <div
-                  className="rounded-xl p-5 border-2"
-                  style={{ borderColor: '#FF6B6B', backgroundColor: '#FF6B6B08' }}
-                >
-                  <div className="flex items-center gap-3 mb-4">
-                    <div
-                      className="w-10 h-10 rounded-xl flex items-center justify-center"
-                      style={{ backgroundColor: '#FF6B6B20' }}
-                    >
-                      <Info className="w-5 h-5" style={{ color: '#FF6B6B' }} />
-                    </div>
-                    <div>
-                      <h3 className="font-semibold text-ink">未成交</h3>
-                      <p className="text-xs text-ink-soft">客户已流失</p>
-                    </div>
-                  </div>
+                {dealReviewData.status === 'lost' && (
                   <div className="space-y-4">
-                    <div>
-                      <p className="text-xs text-ink-soft mb-1.5">未成交原因</p>
-                      <span className="inline-flex items-center text-[11px] px-2.5 py-1 rounded-full font-medium"
-                        style={{ backgroundColor: '#FF6B6B20', color: '#FF6B6B' }}
-                      >
-                        {dealReviewData.undealReason ?? '暂无记录'}
-                      </span>
+                    <div className="rounded-2xl p-5 border-2" style={{ borderColor: '#FF6B6B50', background: 'linear-gradient(135deg, #FF6B6B08 0%, #FFFFFF 100%)' }}>
+                      <div className="flex items-start justify-between gap-4 flex-wrap">
+                        <div className="flex items-center gap-4">
+                          <div
+                            className="w-16 h-16 rounded-2xl flex items-center justify-center text-2xl font-serif font-bold text-white shadow-lg"
+                            style={{
+                              background: 'linear-gradient(135deg, #FF6B6B, #FFB36B)',
+                            }}
+                          >
+                            {customer!.name.charAt(0)}
+                          </div>
+                          <div>
+                            <h3 className="font-serif text-xl font-bold text-ink">{customer!.name}</h3>
+                            <div className="flex items-center gap-2 mt-1">
+                              <Info size={13} className="text-coral" />
+                              <span className="text-xs text-ink-soft">未成交客户</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {dealReviewData.undealReason && (
+                        <div className="mt-4 rounded-xl p-4 text-center" style={{ backgroundColor: '#FF6B6B18' }}>
+                          <span className="text-base font-bold text-coral">
+                            「{dealReviewData.undealReason}」
+                          </span>
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-2 gap-3 mt-4">
+                        <div className="rounded-xl p-3.5 bg-white/70 border border-coral/15">
+                          <div className="flex items-center gap-1.5 mb-1.5">
+                            <MessageCircle size={12} className="text-rose-gold-400" />
+                            <span className="text-[11px] text-ink-soft">跟进次数</span>
+                          </div>
+                          <p className="text-lg font-bold text-ink">
+                            {dealReviewData.totalFollowUpCount} <span className="text-xs font-normal text-ink-soft">次</span>
+                          </p>
+                        </div>
+                        <div className="rounded-xl p-3.5 bg-white/70 border border-coral/15">
+                          <div className="flex items-center gap-1.5 mb-1.5">
+                            <Calendar size={12} className="text-rose-gold-400" />
+                            <span className="text-[11px] text-ink-soft">最后跟进</span>
+                          </div>
+                          <p className="text-sm font-bold text-ink truncate">
+                            {dealReviewData.lastRecord?.date ?? '暂无'}
+                          </p>
+                        </div>
+                      </div>
                     </div>
+
                     {dealReviewData.lastRecord && (
-                      <div>
-                        <p className="text-xs text-ink-soft mb-1.5">最后跟进记录</p>
-                        <div className="rounded-lg p-3 bg-white/60 border border-coral/20">
-                          <div className="flex items-center gap-2 mb-1">
-                            {dealReviewData.lastRecord.date && (
-                              <span className="text-[11px] text-ink-soft">
-                                {dealReviewData.lastRecord.date}
-                              </span>
-                            )}
+                      <div className="rounded-2xl p-4 border border-coral/15 bg-gradient-to-br from-coral/5 to-transparent">
+                        <h4 className="text-xs font-semibold text-ink-soft mb-2.5 flex items-center gap-1.5">
+                          <MessageSquare size={12} className="text-coral" />
+                          最后一次跟进摘要
+                        </h4>
+                        <div className="rounded-xl p-3.5 bg-white/80">
+                          <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                            <span className="text-[11px] text-ink-soft">{dealReviewData.lastRecord.date}</span>
                             {dealReviewData.lastRecord.method && (
-                              <span className="text-[11px] px-2 py-0.5 rounded-full bg-peach-soft text-ink-soft font-medium">
+                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-peach-soft text-ink-soft font-medium">
                                 {dealReviewData.lastRecord.method}
                               </span>
                             )}
@@ -952,31 +1099,69 @@ export default function CustomerProfile() {
                       </div>
                     )}
                   </div>
-                </div>
-              )}
+                )}
 
-              {dealReviewData.status === 'active' && (
-                <div
-                  className="rounded-xl p-5 border-2 border-gray-200 bg-gray-50"
-                >
-                  <div className="flex items-start gap-3">
-                    <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-gray-200">
-                      <Info className="w-5 h-5 text-gray-500" />
-                    </div>
-                    <div>
-                      <h3 className="font-semibold text-gray-700">此客户尚未成交</h3>
-                      <p className="text-xs text-gray-500 mt-0.5">
-                        可在跟进任务中心或回访记录中更新成交状态
-                      </p>
+                {dealReviewData.status === 'active' && (
+                  <div
+                    className="rounded-xl p-5 border-2 border-gray-200 bg-gray-50"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-gray-200">
+                        <Info className="w-5 h-5 text-gray-500" />
+                      </div>
+                      <div>
+                        <h3 className="font-semibold text-gray-700">此客户尚未成交</h3>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          可在跟进任务中心或回访记录中更新成交状态
+                        </p>
+                      </div>
                     </div>
                   </div>
-                </div>
-              )}
-            </div>
-          </motion.div>
+                )}
+              </div>
+            </motion.div>
+
+            <motion.div variants={itemVariants} className="space-y-4">
+              <div className="card p-5 card-hover">
+                <h3 className="text-sm font-semibold text-ink mb-4 flex items-center gap-2">
+                  <Hash size={14} className="text-rose-gold-500" />
+                  跟进反馈标签分布
+                </h3>
+                {feedbackTagStats.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {feedbackTagStats.map((item) => (
+                      <span
+                        key={item.tag}
+                        className="relative inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium transition-all hover:scale-105"
+                        style={{
+                          background: 'linear-gradient(135deg, #FFE8D6 0%, #FFD4A3 100%)',
+                          color: '#A66E2E',
+                        }}
+                      >
+                        <span>{item.tag}</span>
+                        <span
+                          className="inline-flex items-center justify-center min-w-[18px] h-[18px] rounded-full text-[10px] font-bold px-1.5"
+                          style={{ backgroundColor: '#D4A574', color: 'white' }}
+                        >
+                          {item.count}
+                        </span>
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <Tag size={28} className="text-ink-soft/30 mx-auto mb-2" />
+                    <p className="text-xs text-ink-soft/60 leading-relaxed">
+                      暂无跟进反馈标签<br />完成跟进时选择后可见
+                    </p>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </div>
         )}
 
-        <motion.div variants={itemVariants} className="mt-6">
+        <motion.div variants={itemVariants} className="mt-6" id="customer-timeline">
           <div className="card p-6 card-hover">
             <h2 className="section-title mb-5">历史跟进与回访</h2>
             {timelineData.length === 0 ? (
