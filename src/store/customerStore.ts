@@ -65,6 +65,8 @@ interface CustomerStore {
   getOverdueCustomers: () => Customer[];
   getCustomersByTier: (tier: string) => Customer[];
   getCustomersByConsultant: (consultantId: string) => Customer[];
+  getDealsByDateRange: (startDate: string, endDate: string) => Customer[];
+  getDealsByConsultantInRange: (consultantId: string, startDate: string, endDate: string) => Customer[];
 }
 
 export const useCustomerStore = create<CustomerStore>((set, get) => ({
@@ -161,10 +163,20 @@ export const useCustomerStore = create<CustomerStore>((set, get) => ({
 
   updateCustomer: (id, data) => {
     set((state) => {
+      const now = formatDate(new Date());
       const customers = state.customers.map((c) => {
         if (c.id !== id) return c;
 
-        const updated = { ...c, ...data };
+        const updatedData: Partial<Customer> = { ...data };
+
+        if (data.status === 'deal' && c.status !== 'deal') {
+          updatedData.deal_at = now;
+        }
+        if (data.status && data.status !== 'deal' && c.status === 'deal') {
+          updatedData.deal_at = undefined;
+        }
+
+        const updated = { ...c, ...updatedData };
 
         const dealData = calculateDealProbability({
           budget_min: updated.budget_min,
@@ -255,14 +267,38 @@ export const useCustomerStore = create<CustomerStore>((set, get) => ({
         c.id === task.customer_id ? { ...c, last_follow_up: now } : c
       );
 
+      const priorityText: Record<string, string> = {
+        high: '高',
+        medium: '中',
+        low: '低',
+      };
+      const methodText = task.follow_up_method || '未指定方式';
+      const noteText = task.follow_up_note || '无备注';
+      const autoNote = `跟进完成 · ${priorityText[task.priority] || task.priority}优先级 · ${methodText} · ${noteText}`;
+
+      const newRecord: VisitRecord = {
+        id: generateId(),
+        record_type: 'follow_up_done',
+        customer_id: task.customer_id,
+        satisfaction: 5,
+        follow_up_method: task.follow_up_method,
+        follow_up_note: task.follow_up_note,
+        next_follow_up: task.next_follow_up,
+        priority: task.priority,
+        note: autoNote,
+        created_at: now,
+      };
+
+      const records = [...state.records, newRecord];
+
       saveToStorage<PersistedData>(STORAGE_KEY, {
         customers,
         tasks,
-        records: state.records,
+        records,
         consultants: state.consultants,
       });
 
-      return { tasks, customers };
+      return { tasks, customers, records };
     });
   },
 
@@ -275,6 +311,10 @@ export const useCustomerStore = create<CustomerStore>((set, get) => ({
       undeal_reason: record.undeal_reason,
       note: record.note,
       created_at: formatDate(new Date()),
+      follow_up_method: record.follow_up_method,
+      follow_up_note: record.follow_up_note,
+      next_follow_up: record.next_follow_up,
+      priority: record.priority,
     };
 
     set((state) => {
@@ -362,5 +402,24 @@ export const useCustomerStore = create<CustomerStore>((set, get) => ({
   getCustomersByConsultant: (consultantId) => {
     const state = get();
     return state.customers.filter((c) => c.consultant_id === consultantId);
+  },
+
+  getDealsByDateRange: (startDate, endDate) => {
+    const state = get();
+    return state.customers.filter((c) => {
+      if (c.status !== 'deal') return false;
+      const dateStr = c.deal_at || c.created_at;
+      return dateStr >= startDate && dateStr <= endDate;
+    });
+  },
+
+  getDealsByConsultantInRange: (consultantId, startDate, endDate) => {
+    const state = get();
+    return state.customers.filter((c) => {
+      if (c.status !== 'deal') return false;
+      if (c.consultant_id !== consultantId) return false;
+      const dateStr = c.deal_at || c.created_at;
+      return dateStr >= startDate && dateStr <= endDate;
+    });
   },
 }));

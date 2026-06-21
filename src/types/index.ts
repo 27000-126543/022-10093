@@ -21,6 +21,8 @@ export interface Customer {
   status: 'active' | 'deal' | 'lost';
   deal_amount?: number;
   deal_projects?: string[];
+  deal_at?: string;
+  undeal_reason?: string;
   deal_probability_breakdown?: {
     budget: number;
     urgency: number;
@@ -46,11 +48,15 @@ export interface FollowUpTask {
 export interface VisitRecord {
   id: string;
   customer_id: string;
-  record_type: 'consultation' | 'follow_up' | 'post_op';
+  record_type: 'consultation' | 'follow_up' | 'post_op' | 'follow_up_done';
   satisfaction: number;
   undeal_reason?: string;
   note?: string;
   created_at: string;
+  follow_up_method?: 'wechat' | 'phone' | 'visit' | string;
+  follow_up_note?: string;
+  next_follow_up?: string;
+  priority?: 'high' | 'medium' | 'low';
 }
 
 export interface Consultant {

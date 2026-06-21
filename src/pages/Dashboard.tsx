@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import {
   PieChart,
@@ -29,6 +29,7 @@ import {
   Flame,
   ArrowRight,
 } from 'lucide-react';
+
 import { useCustomerStore } from '@/store/customerStore';
 import { TIER_CONFIG } from '@/constants/dictionaries';
 import type { TierType, Customer } from '@/types';
@@ -56,6 +57,12 @@ function formatDate(d: Date): string {
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+function isDealInRange(customer: Customer, startDate: string, endDate: string): boolean {
+  if (customer.status !== 'deal') return false;
+  const dealDate = customer.deal_at ?? customer.created_at;
+  return dealDate >= startDate && dealDate <= endDate;
 }
 
 function getDateRangeArray(days: number) {
@@ -586,6 +593,7 @@ export default function Dashboard() {
   const [showConsultantDropdown, setShowConsultantDropdown] = useState(false);
   const [viewMode, setViewMode] = useState<'consultant' | 'supervisor'>('consultant');
   const [rangeDays, setRangeDays] = useState<7 | 30>(7);
+  const [expandedConsultantId, setExpandedConsultantId] = useState<string | null>(null);
 
   if (customers.length === 0) {
     initializeMockData();
@@ -630,7 +638,7 @@ export default function Dashboard() {
     const deals = customers.filter(
       (c) =>
         c.status === 'deal' &&
-        (c.last_follow_up ?? c.created_at).slice(0, 7) === yearMonth
+        (c.deal_at ?? c.created_at).slice(0, 7) === yearMonth
     );
     return {
       count: deals.length,
@@ -697,16 +705,13 @@ export default function Dashboard() {
     const stats = consultants.map((c) => {
       const myCustomers = customers.filter((x) => x.consultant_id === c.id);
 
-      const newHighIntent = myCustomers.filter(
-        (x) => x.tier === 'high' && x.created_at >= rangeStart && x.created_at <= rangeEnd
-      ).length;
-
-      const deals = myCustomers.filter(
-        (x) =>
-          x.status === 'deal' &&
-          ((x.last_follow_up && x.last_follow_up >= rangeStart && x.last_follow_up <= rangeEnd) ||
-            (x.created_at >= rangeStart && x.created_at <= rangeEnd))
+      const newCustomers = myCustomers.filter(
+        (x) => x.created_at >= rangeStart && x.created_at <= rangeEnd
       );
+
+      const newHighIntent = newCustomers.filter((x) => x.tier === 'high').length;
+
+      const deals = myCustomers.filter((x) => isDealInRange(x, rangeStart, rangeEnd));
 
       const conversionRate = newHighIntent > 0 ? deals.length / newHighIntent : 0;
 
@@ -714,12 +719,7 @@ export default function Dashboard() {
         (x) => x.tier === 'high' && x.created_at >= prevRangeStart && x.created_at <= prevRangeEnd
       ).length;
 
-      const prevDeals = myCustomers.filter(
-        (x) =>
-          x.status === 'deal' &&
-          ((x.last_follow_up && x.last_follow_up >= prevRangeStart && x.last_follow_up <= prevRangeEnd) ||
-            (x.created_at >= prevRangeStart && x.created_at <= prevRangeEnd))
-      ).length;
+      const prevDeals = myCustomers.filter((x) => isDealInRange(x, prevRangeStart, prevRangeEnd)).length;
 
       const prevConversionRate = prevNewHighIntent > 0 ? prevDeals / prevNewHighIntent : 0;
       const conversionTrend = conversionRate - prevConversionRate;
@@ -734,10 +734,25 @@ export default function Dashboard() {
         return lastDays - threshold > 0;
       }).length;
 
+      const followedUpCustomerIds = new Set(
+        tasks
+          .filter(
+            (t) =>
+              t.completed &&
+              t.completed_at &&
+              t.completed_at >= rangeStart &&
+              t.completed_at <= rangeEnd
+          )
+          .map((t) => t.customer_id)
+      );
+
       return {
         ...c,
+        newCustomersCount: newCustomers.length,
         newHighIntent,
         dealsCount: deals.length,
+        deals,
+        followedUpCount: newCustomers.filter((x) => followedUpCustomerIds.has(x.id)).length,
         conversionRate,
         conversionTrend,
         overdueCount,
@@ -745,7 +760,7 @@ export default function Dashboard() {
     });
 
     return stats;
-  }, [consultants, customers, dateRange, rangeDays]);
+  }, [consultants, customers, dateRange, rangeDays, tasks]);
 
   const trendChartData = useMemo(() => {
     return dateRange.map((dr) => {
@@ -758,7 +773,7 @@ export default function Dashboard() {
         const deals = myCustomers.filter(
           (x) =>
             x.status === 'deal' &&
-            (x.last_follow_up === dr.date || x.created_at === dr.date)
+            ((x.deal_at ?? x.created_at) === dr.date)
         ).length;
         item[c.name] = deals;
       });
@@ -1084,8 +1099,26 @@ export default function Dashboard() {
                           <span className="text-xs text-ink-soft ml-1">人</span>
                         </td>
                         <td className="py-3.5 px-4 text-center">
-                          <span className="text-lg font-bold text-mint">{s.dealsCount}</span>
-                          <span className="text-xs text-ink-soft ml-1">单</span>
+                          <button
+                            onClick={() =>
+                              setExpandedConsultantId(
+                                expandedConsultantId === s.id ? null : s.id
+                              )
+                            }
+                            className="group inline-flex items-center gap-1.5 px-3 py-1 rounded-lg transition-all hover:bg-mint/10"
+                          >
+                            <span
+                              className="text-lg font-bold text-mint group-hover:underline decoration-mint decoration-2 underline-offset-4"
+                              style={{ textDecorationColor: '#D4A574' }}
+                            >
+                              {s.dealsCount}
+                            </span>
+                            {s.dealsCount > 0 && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-mint/20 text-mint font-medium">
+                                {s.dealsCount}人
+                              </span>
+                            )}
+                          </button>
                         </td>
                         <td className="py-3.5 px-4 text-center">
                           <div className="flex items-center justify-center gap-1.5">
@@ -1129,6 +1162,204 @@ export default function Dashboard() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+
+              <AnimatePresence>
+                {expandedConsultantId &&
+                  (() => {
+                    const consultant = supervisorStats.find(
+                      (s) => s.id === expandedConsultantId
+                    );
+                    if (!consultant || consultant.deals.length === 0) return null;
+                    return (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.3, ease: 'easeOut' }}
+                        className="overflow-hidden"
+                      >
+                        <div className="mt-5 pt-5 border-t border-rose-gold-100">
+                          <div className="flex items-center justify-between mb-4">
+                            <h4 className="font-semibold text-ink text-sm flex items-center gap-2">
+                              <ShoppingBag className="w-4 h-4 text-mint" />
+                              {consultant.name} · 成交客户明细
+                            </h4>
+                            <span className="text-xs text-ink-soft">
+                              共 {consultant.deals.length} 人
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                            {consultant.deals.map((cust) => {
+                              const dealDate = cust.deal_at ?? cust.created_at;
+                              const dealAmount = cust.deal_amount ?? 0;
+                              const amountStr =
+                                dealAmount >= 10000
+                                  ? `${(dealAmount / 10000).toFixed(1)}万`
+                                  : `¥${dealAmount}`;
+                              return (
+                                <motion.div
+                                  key={cust.id}
+                                  layout
+                                  initial={{ opacity: 0, y: 8 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  onClick={() =>
+                                    navigate(`/customers/${cust.id}/profile`)
+                                  }
+                                  className="group rounded-xl border bg-white p-3 cursor-pointer transition-all duration-300 border-mint/20 hover:shadow-card-hover hover:-translate-y-0.5 hover:border-mint"
+                                >
+                                  <div className="flex items-center gap-2 mb-2">
+                                    <div
+                                      className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-serif font-bold text-white"
+                                      style={{
+                                        background:
+                                          'linear-gradient(135deg, #4ECDC4, #D4A574)',
+                                      }}
+                                    >
+                                      {cust.name.charAt(0)}
+                                    </div>
+                                    <div className="min-w-0">
+                                      <p className="text-sm font-medium text-ink truncate">
+                                        {cust.name}
+                                      </p>
+                                      <p className="text-[10px] text-ink-soft">
+                                        {dealDate}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center justify-between mb-1.5">
+                                    <span className="text-xs text-ink-soft">成交金额</span>
+                                    <span className="text-sm font-bold text-mint">
+                                      {amountStr}
+                                    </span>
+                                  </div>
+                                  <div className="flex flex-wrap gap-1">
+                                    {(cust.deal_projects ?? cust.projects)
+                                      .slice(0, 2)
+                                      .map((p) => (
+                                        <span
+                                          key={p}
+                                          className="text-[10px] px-1.5 py-0.5 rounded bg-peach-soft text-ink-soft"
+                                        >
+                                          {p}
+                                        </span>
+                                      ))}
+                                    {(cust.deal_projects ?? cust.projects).length >
+                                      2 && (
+                                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-peach-soft text-ink-soft">
+                                        +
+                                        {(cust.deal_projects ?? cust.projects)
+                                          .length - 2}
+                                      </span>
+                                    )}
+                                  </div>
+                                </motion.div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </motion.div>
+                    );
+                  })()}
+              </AnimatePresence>
+            </motion.div>
+
+            <motion.div variants={fadeInUp} className="card p-6">
+              <h3 className="section-title !mb-0 mb-5">咨询师转化漏斗对比</h3>
+              <div className="space-y-5">
+                {supervisorStats.map((s) => {
+                  const total = s.newCustomersCount || 1;
+                  const layers = [
+                    { name: '新增客户', count: s.newCustomersCount, color: '#FFD4A3', bgColor: '#FFE8D6' },
+                    { name: '高意向', count: s.newHighIntent, color: '#FF6B6B', bgColor: '#FFE8E8' },
+                    { name: '已跟进', count: s.followedUpCount, color: '#D4A574', bgColor: '#F6EDE2' },
+                    { name: '成交', count: s.dealsCount, color: '#4ECDC4', bgColor: '#E8FAF8' },
+                  ];
+
+                  const segments = layers.map((layer, idx) => {
+                    const prevCount = idx === 0 ? total : layers[idx - 1].count;
+                    const widthPct = prevCount > 0 ? (layer.count / total) * 100 : 0;
+                    const dropPct = idx === 0 ? 0 : prevCount > 0 ? ((prevCount - layer.count) / prevCount) * 100 : 0;
+                    const ratioPct = idx === 0 ? 100 : layers[idx - 1].count > 0 ? (layer.count / layers[idx - 1].count) * 100 : 0;
+                    return { ...layer, widthPct, dropPct, ratioPct, prevCount };
+                  });
+
+                  return (
+                    <div key={s.id} className="flex items-center gap-4">
+                      <div className="flex items-center gap-2 w-[140px] flex-shrink-0">
+                        <div className="w-9 h-9 rounded-full bg-rose-gold-100 flex items-center justify-center">
+                          <UserCircle2 className="w-5 h-5 text-rose-gold-500" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-ink truncate">{s.name}</p>
+                          <p className="text-[10px] text-ink-soft">{s.dealsCount}/{s.newCustomersCount}</p>
+                        </div>
+                      </div>
+                      <div className="flex-1 relative">
+                        <div className="flex items-center h-10 rounded-lg overflow-hidden bg-rose-gold-50">
+                          {segments.map((seg, idx) => (
+                            <div
+                              key={idx}
+                              className="relative h-full flex items-center justify-center transition-all duration-500"
+                              style={{
+                                width: `${Math.max(seg.widthPct, 0)}%`,
+                                backgroundColor: seg.color,
+                                opacity: 0.85,
+                              }}
+                            >
+                              {seg.widthPct > 12 && (
+                                <span className="text-[10px] font-bold text-white px-1 truncate">
+                                  {seg.name} {Math.round(seg.ratioPct)}%
+                                </span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                        <div className="flex items-center h-6 mt-1">
+                          {segments.slice(1).map((seg, idx) => {
+                            const offsetStart =
+                              segments.slice(0, idx + 1).reduce((sum, s) => sum + s.widthPct, 0) -
+                              segments[idx].widthPct;
+                            return (
+                              <div
+                                key={idx}
+                                className="absolute text-[10px] text-ink-soft"
+                                style={{
+                                  left: `${offsetStart + segments[idx].widthPct / 2}%`,
+                                  transform: 'translateX(-50%)',
+                                }}
+                              >
+                                ↓{seg.prevCount - seg.count}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      <div className="w-[70px] flex-shrink-0 text-right">
+                        <span className="text-sm font-bold text-mint">{s.dealsCount}</span>
+                        <span className="text-[10px] text-ink-soft ml-0.5">
+                          /{s.newCustomersCount}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="flex items-center justify-center gap-4 mt-5 pt-4 border-t border-rose-gold-50">
+                {[
+                  { name: '新增客户', color: '#FFD4A3' },
+                  { name: '高意向', color: '#FF6B6B' },
+                  { name: '已跟进', color: '#D4A574' },
+                  { name: '成交', color: '#4ECDC4' },
+                ].map((legend) => (
+                  <div key={legend.name} className="flex items-center gap-1.5">
+                    <div
+                      className="w-3 h-3 rounded"
+                      style={{ backgroundColor: legend.color }}
+                    />
+                    <span className="text-xs text-ink-soft">{legend.name}</span>
+                  </div>
+                ))}
               </div>
             </motion.div>
 

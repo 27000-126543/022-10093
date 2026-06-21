@@ -31,6 +31,9 @@ import {
   User,
   Star,
   CheckCircle,
+  ShoppingBag,
+  Tag,
+  Info,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -182,6 +185,7 @@ export default function CustomerProfile() {
       consultation: '术前咨询',
       follow_up: '跟进回访',
       post_op: '术后回访',
+      follow_up_done: '跟进完成',
     };
 
     const completedTasks: TimelineItem[] = tasks
@@ -201,16 +205,22 @@ export default function CustomerProfile() {
       .filter((r) => r.customer_id === customer.id)
       .map((r: VisitRecord) => {
         const isUndeal = !!r.undeal_reason;
+        const isFollowUpDone = r.record_type === 'follow_up_done';
+        let color = '#4ECDC4';
+        if (isUndeal) color = '#FF6B6B';
+        else if (isFollowUpDone) color = '#4A90D9';
         return {
           id: r.id,
           type: 'record',
           date: r.created_at,
           title: recordTypeLabel[r.record_type] ?? '回访记录',
-          color: isUndeal ? '#FF6B6B' : '#4ECDC4',
+          color,
           satisfaction: r.satisfaction,
           recordType: r.record_type,
           undealReason: r.undeal_reason,
-          note: r.note,
+          note: r.follow_up_note ?? r.note,
+          method: r.follow_up_method ? methodLabel[r.follow_up_method] : undefined,
+          priority: r.priority ? priorityLabel[r.priority] : undefined,
         };
       });
 
@@ -218,6 +228,91 @@ export default function CustomerProfile() {
       (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
     );
   }, [customer, tasks, records]);
+
+  const dealReviewData = useMemo(() => {
+    if (!customer) return null;
+
+    const formatAmount = (amount?: number) => {
+      if (!amount) return '暂无';
+      if (amount >= 10000) {
+        return `${(amount / 10000).toFixed(2)}万`;
+      }
+      return `¥${amount}`;
+    };
+
+    const dealDate = customer.deal_at ?? customer.created_at;
+
+    const followUpDoneRecords = records
+      .filter(
+        (r) => r.customer_id === customer.id && r.record_type === 'follow_up_done'
+      )
+      .sort(
+        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      );
+
+    const sourceFollowUpRecord =
+      followUpDoneRecords.length > 0
+        ? followUpDoneRecords[followUpDoneRecords.length - 1]
+        : null;
+
+    const lastFollowUpRecord =
+      followUpDoneRecords.length > 0
+        ? followUpDoneRecords[followUpDoneRecords.length - 1]
+        : tasks
+            .filter((t) => t.customer_id === customer.id && t.completed)
+            .sort(
+              (a, b) =>
+                new Date(b.completed_at ?? b.due_date).getTime() -
+                new Date(a.completed_at ?? a.due_date).getTime()
+            )[0];
+
+    const methodLabel: Record<string, string> = {
+      wechat: '微信',
+      phone: '电话',
+      visit: '到店',
+    };
+
+    const priorityLabel: Record<string, string> = {
+      high: '高优先级',
+      medium: '中优先级',
+      low: '低优先级',
+    };
+
+    return {
+      status: customer.status,
+      dealDate,
+      dealAmount: formatAmount(customer.deal_amount),
+      dealProjects: customer.deal_projects ?? [],
+      channel: customer.channel,
+      undealReason: customer.undeal_reason,
+      sourceRecord: sourceFollowUpRecord
+        ? {
+            method: methodLabel[sourceFollowUpRecord.follow_up_method ?? ''] ?? undefined,
+            priority: sourceFollowUpRecord.priority
+              ? priorityLabel[sourceFollowUpRecord.priority]
+              : undefined,
+            note: sourceFollowUpRecord.follow_up_note ?? sourceFollowUpRecord.note,
+          }
+        : null,
+      lastRecord: lastFollowUpRecord
+        ? {
+            date:
+              'completed_at' in lastFollowUpRecord
+                ? (lastFollowUpRecord as FollowUpTask).completed_at ??
+                  (lastFollowUpRecord as FollowUpTask).due_date
+                : (lastFollowUpRecord as VisitRecord).created_at,
+            method:
+              'follow_up_method' in lastFollowUpRecord
+                ? methodLabel[(lastFollowUpRecord as any).follow_up_method ?? ''] ?? undefined
+                : undefined,
+            note:
+              'follow_up_note' in lastFollowUpRecord
+                ? (lastFollowUpRecord as any).follow_up_note ?? (lastFollowUpRecord as any).note
+                : (lastFollowUpRecord as VisitRecord).note,
+          }
+        : null,
+    };
+  }, [customer, records, tasks]);
 
   const handleCreateTask = () => {
     if (!customer) return;
@@ -716,6 +811,170 @@ export default function CustomerProfile() {
             </button>
           </motion.div>
         </motion.div>
+
+        {dealReviewData && (
+          <motion.div variants={itemVariants} className="mt-6">
+            <div className="card p-6 card-hover">
+              <h2 className="section-title mb-5">成交复盘</h2>
+
+              {dealReviewData.status === 'deal' && (
+                <div
+                  className="rounded-xl p-5 border-2"
+                  style={{ borderColor: '#4ECDC4', backgroundColor: '#4ECDC408' }}
+                >
+                  <div className="flex items-center gap-3 mb-4">
+                  <div
+                    className="w-10 h-10 rounded-xl flex items-center justify-center"
+                    style={{ backgroundColor: '#4ECDC420' }}
+                  >
+                    <ShoppingBag className="w-5 h-5" style={{ color: '#4ECDC4' }} />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-ink">已成交</h3>
+                    <p className="text-xs text-ink-soft">恭喜成交记录已归档</p>
+                  </div>
+                </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-xs text-ink-soft mb-1">成交时间</p>
+                      <p className="text-sm font-semibold text-ink">{dealReviewData.dealDate}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-ink-soft mb-1">成交金额</p>
+                      <p className="text-sm font-semibold text-mint">{dealReviewData.dealAmount}</p>
+                    </div>
+                    <div className="col-span-2">
+                      <p className="text-xs text-ink-soft mb-2">成交项目</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {dealReviewData.dealProjects.length > 0 ? (
+                          dealReviewData.dealProjects.map((p) => (
+                            <span
+                              key={p}
+                              className="text-[11px] px-2 py-0.5 rounded-full font-medium"
+                              style={{ backgroundColor: '#4ECDC420', color: '#4ECDC4' }}
+                            >
+                              {p}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="text-xs text-ink-soft">暂无项目记录</span>
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-xs text-ink-soft mb-2">来源渠道</p>
+                      <span className="inline-flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-full bg-peach-soft text-ink-soft font-medium">
+                        <Tag className="w-3 h-3" />
+                        {dealReviewData.channel}
+                      </span>
+                    </div>
+                    <div className="col-span-2">
+                      <p className="text-xs text-ink-soft mb-1.5">来源跟进记录</p>
+                      {dealReviewData.sourceRecord ? (
+                        <div className="rounded-lg p-3 bg-white/60 border border-mint/20">
+                          <div className="flex items-center gap-2 mb-1 flex-wrap">
+                            {dealReviewData.sourceRecord.method && (
+                              <span className="text-[11px] px-2 py-0.5 rounded-full bg-peach-soft text-ink-soft font-medium">
+                                {dealReviewData.sourceRecord.method}
+                              </span>
+                            )}
+                            {dealReviewData.sourceRecord.priority && (
+                              <span
+                                className="text-[11px] px-2 py-0.5 rounded-full font-medium"
+                                style={{ backgroundColor: '#4ECDC420', color: '#4ECDC4' }}
+                              >
+                                {dealReviewData.sourceRecord.priority}
+                              </span>
+                            )}
+                          </div>
+                          {dealReviewData.sourceRecord.note && (
+                            <p className="text-xs text-ink-soft leading-relaxed">
+                              {dealReviewData.sourceRecord.note}
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-ink-soft">暂无对应跟进记录</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {dealReviewData.status === 'lost' && (
+                <div
+                  className="rounded-xl p-5 border-2"
+                  style={{ borderColor: '#FF6B6B', backgroundColor: '#FF6B6B08' }}
+                >
+                  <div className="flex items-center gap-3 mb-4">
+                    <div
+                      className="w-10 h-10 rounded-xl flex items-center justify-center"
+                      style={{ backgroundColor: '#FF6B6B20' }}
+                    >
+                      <Info className="w-5 h-5" style={{ color: '#FF6B6B' }} />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-ink">未成交</h3>
+                      <p className="text-xs text-ink-soft">客户已流失</p>
+                    </div>
+                  </div>
+                  <div className="space-y-4">
+                    <div>
+                      <p className="text-xs text-ink-soft mb-1.5">未成交原因</p>
+                      <span className="inline-flex items-center text-[11px] px-2.5 py-1 rounded-full font-medium"
+                        style={{ backgroundColor: '#FF6B6B20', color: '#FF6B6B' }}
+                      >
+                        {dealReviewData.undealReason ?? '暂无记录'}
+                      </span>
+                    </div>
+                    {dealReviewData.lastRecord && (
+                      <div>
+                        <p className="text-xs text-ink-soft mb-1.5">最后跟进记录</p>
+                        <div className="rounded-lg p-3 bg-white/60 border border-coral/20">
+                          <div className="flex items-center gap-2 mb-1">
+                            {dealReviewData.lastRecord.date && (
+                              <span className="text-[11px] text-ink-soft">
+                                {dealReviewData.lastRecord.date}
+                              </span>
+                            )}
+                            {dealReviewData.lastRecord.method && (
+                              <span className="text-[11px] px-2 py-0.5 rounded-full bg-peach-soft text-ink-soft font-medium">
+                                {dealReviewData.lastRecord.method}
+                              </span>
+                            )}
+                          </div>
+                          {dealReviewData.lastRecord.note && (
+                            <p className="text-xs text-ink-soft leading-relaxed">
+                              {dealReviewData.lastRecord.note}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {dealReviewData.status === 'active' && (
+                <div
+                  className="rounded-xl p-5 border-2 border-gray-200 bg-gray-50"
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-gray-200">
+                      <Info className="w-5 h-5 text-gray-500" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-gray-700">此客户尚未成交</h3>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        可在跟进任务中心或回访记录中更新成交状态
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
 
         <motion.div variants={itemVariants} className="mt-6">
           <div className="card p-6 card-hover">

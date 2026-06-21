@@ -72,6 +72,7 @@ export default function TaskList() {
     customers,
     consultants,
     completeTask,
+    updateTask,
     addTask,
     initializeMockData,
   } = useCustomerStore();
@@ -189,15 +190,20 @@ export default function TaskList() {
 
   const handleSaveFollow = () => {
     if (!selectedTask) return;
-    completeTask(selectedTask.id);
-    addTask({
-      customer_id: selectedTask.customer_id,
-      priority: selectedTask.priority,
-      due_date: nextDate,
+    updateTask(selectedTask.id, {
       follow_up_method: followMethod,
       follow_up_note: followNote,
-      suggested_script: selectedTask.suggested_script,
+      next_follow_up: nextDate,
     });
+    completeTask(selectedTask.id);
+    if (nextDate && nextDate.trim()) {
+      addTask({
+        customer_id: selectedTask.customer_id,
+        priority: selectedTask.priority,
+        due_date: nextDate,
+        suggested_script: selectedTask.suggested_script,
+      });
+    }
     setSelectedTaskId(null);
   };
 
