@@ -44,11 +44,12 @@ interface PersistedData {
 
 interface DealDimensionItem {
   key: string;
-  deal_count: number;
-  total_amount: number;
-  avg_price: number;
-  avg_cycle: number;
-  customer_ids: string[];
+  name: string;
+  dealCount: number;
+  totalAmount: number;
+  avgUnitPrice: number;
+  avgCycleDays: number;
+  customers: Customer[];
 }
 
 interface DealAnalytics {
@@ -56,10 +57,10 @@ interface DealAnalytics {
   byChannel: DealDimensionItem[];
   byConsultant: DealDimensionItem[];
   summary: {
-    total_deals: number;
-    total_amount: number;
-    avg_price: number;
-    avg_cycle: number;
+    totalDeals: number;
+    totalAmount: number;
+    avgUnitPrice: number;
+    avgCycleDays: number;
   };
 }
 
@@ -456,8 +457,8 @@ export const useCustomerStore = create<CustomerStore>((set, get) => ({
     const state = get();
     const dealCustomers = state.customers.filter((c) => {
       if (c.status !== 'deal') return false;
-      const dateStr = c.deal_at || c.created_at;
-      return dateStr >= rangeStart && dateStr <= rangeEnd;
+      const d = c.deal_at || c.created_at;
+      return d >= rangeStart && d <= rangeEnd;
     });
 
     function daysBetweenStr(start: string, end: string): number {
@@ -468,44 +469,64 @@ export const useCustomerStore = create<CustomerStore>((set, get) => ({
 
     function aggregateBy(
       items: Customer[],
-      getKey: (c: Customer) => string[]
+      getKeyAndName: (c: Customer) => Array<{ key: string; name: string }>
     ): DealDimensionItem[] {
-      const map: Record<string, DealDimensionItem> = {};
+      const map: Record<string, { key: string; name: string; dealCount: number; totalAmount: number; totalCycle: number; customers: Customer[] }> = {};
       items.forEach((c) => {
-        const keys = getKey(c);
-        keys.forEach((key) => {
+        const entries = getKeyAndName(c);
+        entries.forEach(({ key, name }) => {
           if (!map[key]) {
             map[key] = {
               key,
-              deal_count: 0,
-              total_amount: 0,
-              avg_price: 0,
-              avg_cycle: 0,
-              customer_ids: [],
+              name,
+              dealCount: 0,
+              totalAmount: 0,
+              totalCycle: 0,
+              customers: [],
             };
           }
           const amount = c.deal_amount ?? 0;
           const cycle = daysBetweenStr(c.created_at, c.deal_at || c.created_at);
-          map[key].deal_count += 1;
-          map[key].total_amount += amount;
-          map[key].avg_cycle += cycle;
-          map[key].customer_ids.push(c.id);
+          map[key].dealCount += 1;
+          map[key].totalAmount += amount;
+          map[key].totalCycle += cycle;
+          map[key].customers.push(c);
         });
       });
       return Object.values(map).map((item) => ({
-        ...item,
-        avg_price: item.deal_count > 0 ? item.total_amount / item.deal_count : 0,
-        avg_cycle: item.deal_count > 0 ? item.avg_cycle / item.deal_count : 0,
+        key: item.key,
+        name: item.name,
+        dealCount: item.dealCount,
+        totalAmount: item.totalAmount,
+        avgUnitPrice: item.dealCount > 0 ? Number((item.totalAmount / item.dealCount).toFixed(2)) : 0,
+        avgCycleDays: item.dealCount > 0 ? Number((item.totalCycle / item.dealCount).toFixed(1)) : 0,
+        customers: item.customers,
       }));
     }
 
-    const byProject = aggregateBy(dealCustomers, (c) => c.deal_projects?.length ? c.deal_projects : ['未指定项目']);
-    const byChannel = aggregateBy(dealCustomers, (c) => [c.channel || '未指定渠道']);
-    const byConsultant = aggregateBy(dealCustomers, (c) => [c.consultant_id || '未指定咨询师']);
+    const byProject = aggregateBy(dealCustomers, (c) => {
+      const projects = c.deal_projects?.length ? c.deal_projects : c.projects?.length ? c.projects : ['未指定项目'];
+      return projects.map((p) => ({ key: p, name: p }));
+    });
 
-    const total_deals = dealCustomers.length;
-    const total_amount = dealCustomers.reduce((s, c) => s + (c.deal_amount ?? 0), 0);
-    const total_cycles = dealCustomers.reduce(
+    const byChannel = aggregateBy(dealCustomers, (c) => {
+      const ch = c.channel || '未指定渠道';
+      return [{ key: ch, name: ch }];
+    });
+
+    const consultantMap: Record<string, string> = {};
+    state.consultants.forEach((con) => {
+      consultantMap[con.id] = con.name;
+    });
+    const byConsultant = aggregateBy(dealCustomers, (c) => {
+      const cid = c.consultant_id || 'unknown';
+      const cname = consultantMap[cid] || '未指定咨询师';
+      return [{ key: cid, name: cname }];
+    });
+
+    const totalDeals = dealCustomers.length;
+    const totalAmount = dealCustomers.reduce((s, c) => s + (c.deal_amount ?? 0), 0);
+    const totalCycles = dealCustomers.reduce(
       (s, c) => s + daysBetweenStr(c.created_at, c.deal_at || c.created_at),
       0
     );
@@ -515,10 +536,10 @@ export const useCustomerStore = create<CustomerStore>((set, get) => ({
       byChannel,
       byConsultant,
       summary: {
-        total_deals,
-        total_amount,
-        avg_price: total_deals > 0 ? total_amount / total_deals : 0,
-        avg_cycle: total_deals > 0 ? total_cycles / total_deals : 0,
+        totalDeals,
+        totalAmount,
+        avgUnitPrice: totalDeals > 0 ? Number((totalAmount / totalDeals).toFixed(2)) : 0,
+        avgCycleDays: totalDeals > 0 ? Number((totalCycles / totalDeals).toFixed(1)) : 0,
       },
     };
   },

@@ -233,6 +233,7 @@ export default function VisitRecords() {
   const handleSaveStatus = () => {
     if (!statusCustomerId) return;
 
+    const today = new Date().toISOString().split('T')[0];
     const statusMap: Record<DealStatus, Customer['status']> = {
       deal: 'deal',
       partial: 'active',
@@ -246,6 +247,11 @@ export default function VisitRecords() {
     if (dealStatus === 'deal' || dealStatus === 'partial') {
       if (dealAmount) updates.deal_amount = Number(dealAmount);
       if (selectedProjects.length) updates.deal_projects = selectedProjects;
+      if (dealStatus === 'deal') updates.deal_at = today;
+    }
+
+    if (dealStatus === 'lost' && selectedUndealReason) {
+      updates.undeal_reason = selectedUndealReason;
     }
 
     updateCustomer(statusCustomerId, updates);
@@ -636,10 +642,9 @@ export default function VisitRecords() {
                                         : '低优先级'}
                                     </span>
                                   )}
-                                  {record.next_follow_up && (
-                                    <span className="tag-pill tag-pill-default text-xs">
-                                      <Calendar className="w-3.5 h-3.5" />
-                                      下次：{record.next_follow_up}
+                                  {record.feedback_tag && (
+                                    <span className="tag-pill tag-pill-active text-xs">
+                                      {record.feedback_tag}
                                     </span>
                                   )}
                                 </div>
@@ -648,13 +653,21 @@ export default function VisitRecords() {
                                     {record.follow_up_note}
                                   </p>
                                 )}
-                                {record.feedback_tag && (
-                                  <div className="flex flex-wrap gap-1.5">
-                                    <span className="tag-pill tag-pill-active text-xs">
-                                      {record.feedback_tag}
-                                    </span>
+                                <div className="flex items-center justify-between flex-wrap gap-2 pt-1">
+                                  <div className="flex items-center gap-3 text-xs text-ink-soft">
+                                    {record.next_follow_up && (
+                                      <span className="flex items-center gap-1">
+                                        <Calendar className="w-3 h-3" />
+                                        下次：{record.next_follow_up}
+                                      </span>
+                                    )}
+                                    <span>{record.customer?.name ?? '未知客户'}</span>
                                   </div>
-                                )}
+                                  <span className="text-xs text-ink-soft flex items-center gap-1">
+                                    <Calendar className="w-3 h-3" />
+                                    {record.created_at}
+                                  </span>
+                                </div>
                               </div>
                             ) : (
                               <>

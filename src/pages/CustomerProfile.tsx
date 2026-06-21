@@ -30,7 +30,6 @@ import {
   Crown,
   User,
   Star,
-  CheckCircle,
   ShoppingBag,
   Tag,
   Info,
@@ -50,7 +49,7 @@ import {
   DECISION_CYCLES,
 } from '@/constants/dictionaries';
 import { useCustomerStore } from '@/store/customerStore';
-import type { Customer, FollowUpTask, VisitRecord } from '@/types';
+import type { Customer, VisitRecord } from '@/types';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -76,7 +75,6 @@ export default function CustomerProfile() {
   const navigate = useNavigate();
   const customers = useCustomerStore((s) => s.customers);
   const consultants = useCustomerStore((s) => s.consultants);
-  const tasks = useCustomerStore((s) => s.tasks);
   const records = useCustomerStore((s) => s.records);
   const addTask = useCustomerStore((s) => s.addTask);
   const initializeMockData = useCustomerStore((s) => s.initializeMockData);
@@ -161,16 +159,20 @@ export default function CustomerProfile() {
 
   type TimelineItem = {
     id: string;
-    type: 'task' | 'record';
+    type: 'record' | 'task';
     date: string;
     title: string;
     color: string;
     priority?: string;
     method?: string;
+    methodKey?: string;
     note?: string;
     satisfaction?: number;
     recordType?: string;
     undealReason?: string;
+    feedbackTag?: string;
+    nextFollowUp?: string;
+    priorityKey?: string;
   };
 
   const timelineData = useMemo<TimelineItem[]>(() => {
@@ -193,19 +195,6 @@ export default function CustomerProfile() {
       follow_up_done: '跟进完成',
     };
 
-    const completedTasks: TimelineItem[] = tasks
-      .filter((t) => t.customer_id === customer.id && t.completed)
-      .map((t: FollowUpTask) => ({
-        id: t.id,
-        type: 'task',
-        date: t.completed_at ?? t.due_date,
-        title: '跟进完成',
-        color: '#D4A574',
-        priority: t.priority ? priorityLabel[t.priority] : undefined,
-        method: t.follow_up_method ? methodLabel[t.follow_up_method] : undefined,
-        note: t.follow_up_note,
-      }));
-
     const visitRecords: TimelineItem[] = records
       .filter((r) => r.customer_id === customer.id)
       .map((r: VisitRecord) => {
@@ -225,14 +214,18 @@ export default function CustomerProfile() {
           undealReason: r.undeal_reason,
           note: r.follow_up_note ?? r.note,
           method: r.follow_up_method ? methodLabel[r.follow_up_method] : undefined,
+          methodKey: r.follow_up_method,
           priority: r.priority ? priorityLabel[r.priority] : undefined,
+          priorityKey: r.priority,
+          feedbackTag: r.feedback_tag,
+          nextFollowUp: r.next_follow_up,
         };
       });
 
-    return [...completedTasks, ...visitRecords].sort(
+    return visitRecords.sort(
       (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
     );
-  }, [customer, tasks, records]);
+  }, [customer, records]);
 
   const dealReviewData = useMemo(() => {
     if (!customer) return null;
@@ -255,11 +248,7 @@ export default function CustomerProfile() {
         (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
       );
 
-    const completedTasksCount = tasks.filter(
-      (t) => t.customer_id === customer.id && t.completed
-    ).length;
-
-    const totalFollowUpCount = followUpDoneRecords.length + completedTasksCount;
+    const totalFollowUpCount = followUpDoneRecords.length;
 
     const calcDealCycleDays = (): number => {
       const d1 = new Date(customer.created_at);
@@ -270,16 +259,9 @@ export default function CustomerProfile() {
 
     const dealCycleDays = calcDealCycleDays();
 
-    const lastFollowUpRecord =
-      followUpDoneRecords.length > 0
-        ? followUpDoneRecords[0]
-        : tasks
-            .filter((t) => t.customer_id === customer.id && t.completed)
-            .sort(
-              (a, b) =>
-                new Date(b.completed_at ?? b.due_date).getTime() -
-                new Date(a.completed_at ?? a.due_date).getTime()
-            )[0];
+    const lastFollowUpRecord = followUpDoneRecords.length > 0
+      ? followUpDoneRecords[0]
+      : null;
 
     const methodLabel: Record<string, string> = {
       wechat: '微信',
@@ -302,6 +284,7 @@ export default function CustomerProfile() {
       priorityLabel: r.priority ? priorityLabel[r.priority] : undefined,
       feedbackTag: r.feedback_tag,
       note: r.follow_up_note ?? r.note ?? '',
+      nextFollowUp: r.next_follow_up,
     }));
 
     return {
@@ -317,23 +300,15 @@ export default function CustomerProfile() {
       recentFollowUps,
       lastRecord: lastFollowUpRecord
         ? {
-            date:
-              'completed_at' in lastFollowUpRecord
-                ? (lastFollowUpRecord as FollowUpTask).completed_at ??
-                  (lastFollowUpRecord as FollowUpTask).due_date
-                : (lastFollowUpRecord as VisitRecord).created_at,
-            method:
-              'follow_up_method' in lastFollowUpRecord
-                ? methodLabel[(lastFollowUpRecord as any).follow_up_method ?? ''] ?? undefined
-                : undefined,
-            note:
-              'follow_up_note' in lastFollowUpRecord
-                ? (lastFollowUpRecord as any).follow_up_note ?? (lastFollowUpRecord as any).note
-                : (lastFollowUpRecord as VisitRecord).note,
+            date: lastFollowUpRecord.created_at,
+            method: lastFollowUpRecord.follow_up_method
+              ? methodLabel[lastFollowUpRecord.follow_up_method] ?? undefined
+              : undefined,
+            note: lastFollowUpRecord.follow_up_note ?? lastFollowUpRecord.note,
           }
         : null,
     };
-  }, [customer, records, tasks]);
+  }, [customer, records]);
 
   const feedbackTagStats = useMemo(() => {
     if (!customer) return [] as { tag: string; count: number }[];
@@ -960,7 +935,7 @@ export default function CustomerProfile() {
                               const priorityColors: Record<string, { bg: string; color: string }> = {
                                 high: { bg: '#FF6B6B18', color: '#FF6B6B' },
                                 medium: { bg: '#F59E0B18', color: '#F59E0B' },
-                                low: { bg: '#9CA3AF18', color: '#9CA3AF' },
+                                low: { bg: '#EAB30818', color: '#EAB308' },
                               };
                               const pColor = fu.priority ? priorityColors[fu.priority] : null;
                               return (
@@ -1005,6 +980,11 @@ export default function CustomerProfile() {
                                     {fu.note && (
                                       <p className="text-xs text-ink-soft leading-relaxed line-clamp-2">
                                         {fu.note}
+                                      </p>
+                                    )}
+                                    {fu.nextFollowUp && (
+                                      <p className="text-[11px] text-ink-soft/60 mt-1">
+                                        下次：{fu.nextFollowUp}
                                       </p>
                                     )}
                                   </div>
@@ -1178,11 +1158,7 @@ export default function CustomerProfile() {
                         className="relative z-10 w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
                         style={{ backgroundColor: item.color }}
                       >
-                        {item.type === 'task' ? (
-                          <CheckCircle className="w-3.5 h-3.5 text-white" />
-                        ) : (
-                          <Star className="w-3.5 h-3.5 text-white" fill="white" />
-                        )}
+                        <Star className="w-3.5 h-3.5 text-white" fill="white" />
                       </div>
                       <div className="flex-1 min-w-0 pb-1">
                         <div className="flex items-center gap-2 mb-1.5 flex-wrap">
@@ -1192,8 +1168,10 @@ export default function CustomerProfile() {
                             <span
                               className="text-[11px] px-2 py-0.5 rounded-full font-medium"
                               style={{
-                                backgroundColor: item.color + '20',
-                                color: item.color,
+                                backgroundColor: item.priorityKey === 'high' ? '#FF6B6B18' :
+                                                 item.priorityKey === 'medium' ? '#F59E0B18' : '#EAB30818',
+                                color: item.priorityKey === 'high' ? '#FF6B6B' :
+                                       item.priorityKey === 'medium' ? '#F59E0B' : '#EAB308',
                               }}
                             >
                               {item.priority}
@@ -1202,6 +1180,12 @@ export default function CustomerProfile() {
                           {item.method && (
                             <span className="text-[11px] px-2 py-0.5 rounded-full bg-peach-soft text-ink-soft font-medium">
                               {item.method}
+                            </span>
+                          )}
+                          {item.feedbackTag && (
+                            <span className="text-[11px] px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: '#4ECDC418', color: '#4ECDC4' }}>
+                              <Hash size={9} className="inline mr-0.5 -mt-0.5" />
+                              {item.feedbackTag}
                             </span>
                           )}
                           {item.satisfaction !== undefined && (
@@ -1227,6 +1211,11 @@ export default function CustomerProfile() {
                         {item.note && (
                           <p className="text-sm text-ink-soft leading-relaxed">
                             {item.note}
+                          </p>
+                        )}
+                        {item.nextFollowUp && (
+                          <p className="text-xs text-ink-soft/60 mt-1">
+                            下次：{item.nextFollowUp}
                           </p>
                         )}
                       </div>

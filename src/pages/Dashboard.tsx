@@ -1392,8 +1392,8 @@ export default function Dashboard() {
                       if (list.length === 0) {
                         return (
                           <tr>
-                            <td colSpan={6} className="py-12 text-center text-ink-soft/50 text-sm">
-                              暂无成交数据
+                            <td colSpan={6} className="py-12 text-center text-ink-soft/60 text-sm">
+                              暂无成交数据，切换时间范围或等待录入成交状态
                             </td>
                           </tr>
                         );
