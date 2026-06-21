@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useCustomerStore } from '@/store/customerStore';
 import {
@@ -9,11 +9,48 @@ import {
   CONTOUR_TAGS,
 } from '@/constants/dictionaries';
 import TagPill from '@/components/TagPill';
+import { QrCode } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+
+interface ScanCustomer {
+  name: string;
+  phone: string;
+  age: number;
+  gender: 'male' | 'female';
+  allergy_history?: string;
+}
+
+const SCAN_PRESET_CUSTOMERS: ScanCustomer[] = [
+  {
+    name: '张雨婷',
+    phone: '138****6523',
+    age: 28,
+    gender: 'female',
+    allergy_history: '',
+  },
+  {
+    name: '李思涵',
+    phone: '139****8817',
+    age: 35,
+    gender: 'female',
+    allergy_history: '',
+  },
+  {
+    name: '王子豪',
+    phone: '137****4209',
+    age: 32,
+    gender: 'male',
+    allergy_history: '',
+  },
+];
 
 export default function CustomerEntry() {
   const navigate = useNavigate();
   const addCustomer = useCustomerStore((state) => state.addCustomer);
   const consultants = useCustomerStore((state) => state.consultants);
+  const channelSelectRef = useRef<HTMLSelectElement>(null);
+
+  const [showScanModal, setShowScanModal] = useState(false);
 
   const [form, setForm] = useState({
     name: '',
@@ -47,10 +84,43 @@ export default function CustomerEntry() {
     navigate(`/customers/${customer.id}/profile`);
   };
 
+  const handleSelectScanCustomer = (customer: ScanCustomer) => {
+    setForm((prev) => ({
+      ...prev,
+      name: customer.name,
+      phone: customer.phone,
+      age: customer.age,
+      gender: customer.gender,
+    }));
+    setShowScanModal(false);
+    setTimeout(() => {
+      channelSelectRef.current?.focus();
+    }, 100);
+  };
+
+  const getInitial = (name: string) => name.charAt(0);
+
+  const getGenderText = (gender: 'male' | 'female') => (gender === 'female' ? '女' : '男');
+
+  const getAvatarColor = (gender: 'male' | 'female') =>
+    gender === 'female' ? 'bg-rose-100 text-rose-600' : 'bg-sky-100 text-sky-600';
+
   return (
     <div className="max-w-3xl mx-auto">
       <div className="card p-8">
         <h2 className="section-title">录入新客户</h2>
+
+        <div className="mb-6">
+          <button
+            type="button"
+            onClick={() => setShowScanModal(true)}
+            className="btn-primary inline-flex items-center gap-2 px-6 py-3 text-lg"
+          >
+            <QrCode size={24} />
+            扫码快速建档
+          </button>
+        </div>
+
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -103,6 +173,7 @@ export default function CustomerEntry() {
             <div>
               <label className="block text-sm font-medium text-ink mb-2">来源渠道</label>
               <select
+                ref={channelSelectRef}
                 className="input-base"
                 value={form.channel}
                 onChange={(e) => setForm({ ...form, channel: e.target.value })}
@@ -214,6 +285,74 @@ export default function CustomerEntry() {
           </div>
         </form>
       </div>
+
+      <AnimatePresence>
+        {showScanModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+            onClick={() => setShowScanModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="p-6 border-b border-rose-gold-50">
+                <h3 className="text-xl font-semibold text-ink">模拟扫码建档</h3>
+                <p className="text-ink-soft mt-1">扫码已识别到客户基础信息，请确认并继续完善</p>
+              </div>
+
+              <div className="p-6 space-y-4">
+                {SCAN_PRESET_CUSTOMERS.map((customer, index) => (
+                  <motion.div
+                    key={index}
+                    initial={{ opacity: 0, x: -20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: index * 0.05 }}
+                    onClick={() => handleSelectScanCustomer(customer)}
+                    className="flex items-center gap-4 p-4 rounded-xl border border-rose-gold-100 hover:border-rose-gold-300 hover:bg-rose-gold-50 cursor-pointer transition-all"
+                  >
+                    <div
+                      className={`w-14 h-14 rounded-full flex items-center justify-center text-xl font-semibold ${getAvatarColor(customer.gender)}`}
+                    >
+                      {getInitial(customer.name)}
+                    </div>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3">
+                        <span className="text-lg font-medium text-ink">{customer.name}</span>
+                        <span className="px-2 py-0.5 rounded-full text-xs bg-rose-gold-100 text-rose-gold-700">
+                          {getGenderText(customer.gender)}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-4 mt-1 text-sm text-ink-soft">
+                        <span>{customer.age}岁</span>
+                        <span>{customer.phone}</span>
+                      </div>
+                    </div>
+                    <div className="text-rose-gold-500 text-sm">选择 →</div>
+                  </motion.div>
+                ))}
+              </div>
+
+              <div className="p-6 border-t border-rose-gold-50 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setShowScanModal(false)}
+                  className="btn-secondary"
+                >
+                  手动输入
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

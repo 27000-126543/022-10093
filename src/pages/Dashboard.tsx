@@ -8,9 +8,15 @@ import {
   ResponsiveContainer,
   Tooltip,
   Legend,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
 } from 'recharts';
 import {
   TrendingUp,
+  TrendingDown,
   Users,
   Target,
   ShoppingBag,
@@ -19,6 +25,9 @@ import {
   AlertTriangle,
   Phone,
   ChevronDown,
+  UserCircle2,
+  Flame,
+  ArrowRight,
 } from 'lucide-react';
 import { useCustomerStore } from '@/store/customerStore';
 import { TIER_CONFIG } from '@/constants/dictionaries';
@@ -41,6 +50,27 @@ const fadeInUp = {
   hidden: { opacity: 0, y: 16 },
   show: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' } },
 };
+
+function formatDate(d: Date): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function getDateRangeArray(days: number) {
+  const result: { date: string; label: string }[] = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const dateStr = formatDate(d);
+    const label = `${d.getMonth() + 1}/${d.getDate()}`;
+    result.push({ date: dateStr, label });
+  }
+  return result;
+}
+
+const lineColors = ['#D4A574', '#FF6B6B', '#4ECDC4', '#F59E0B'];
 
 function StatCard({
   icon: Icon,
@@ -158,6 +188,7 @@ function FollowUpRateRing({ rate }: { rate: number }) {
 }
 
 function CustomerCard({ customer }: { customer: Customer }) {
+  const navigate = useNavigate();
   const tierCfg = TIER_CONFIG[customer.tier];
   const lastActiveDays = customer.last_follow_up
     ? daysSince(customer.last_follow_up)
@@ -167,12 +198,17 @@ function CustomerCard({ customer }: { customer: Customer }) {
       ? customer.phone.slice(0, 3) + '****' + customer.phone.slice(7)
       : customer.phone;
 
+  const handleClick = () => {
+    navigate(`/customers/${customer.id}/profile`);
+  };
+
   return (
     <motion.div
       layout
       initial={{ opacity: 0, scale: 0.96 }}
       animate={{ opacity: 1, scale: 1 }}
       transition={{ duration: 0.25 }}
+      onClick={handleClick}
       className={cn(
         'group rounded-xl border bg-white p-3.5 cursor-pointer transition-all duration-300',
         'border-rose-gold-50 hover:shadow-card-hover hover:-translate-y-0.5',
@@ -548,6 +584,8 @@ export default function Dashboard() {
   const [consultantFilter, setConsultantFilter] = useState<string>('all');
   const [searchText, setSearchText] = useState('');
   const [showConsultantDropdown, setShowConsultantDropdown] = useState(false);
+  const [viewMode, setViewMode] = useState<'consultant' | 'supervisor'>('consultant');
+  const [rangeDays, setRangeDays] = useState<7 | 30>(7);
 
   if (customers.length === 0) {
     initializeMockData();
@@ -638,6 +676,112 @@ export default function Dashboard() {
     }),
     [tieredCustomers]
   );
+
+  const dateRange = useMemo(() => getDateRangeArray(rangeDays), [rangeDays]);
+
+  const supervisorStats = useMemo(() => {
+    const rangeStart = dateRange[0]?.date ?? '';
+    const rangeEnd = dateRange[dateRange.length - 1]?.date ?? '';
+
+    const prevRangeStart = (() => {
+      const d = new Date(rangeStart);
+      d.setDate(d.getDate() - rangeDays);
+      return formatDate(d);
+    })();
+    const prevRangeEnd = (() => {
+      const d = new Date(rangeStart);
+      d.setDate(d.getDate() - 1);
+      return formatDate(d);
+    })();
+
+    const stats = consultants.map((c) => {
+      const myCustomers = customers.filter((x) => x.consultant_id === c.id);
+
+      const newHighIntent = myCustomers.filter(
+        (x) => x.tier === 'high' && x.created_at >= rangeStart && x.created_at <= rangeEnd
+      ).length;
+
+      const deals = myCustomers.filter(
+        (x) =>
+          x.status === 'deal' &&
+          ((x.last_follow_up && x.last_follow_up >= rangeStart && x.last_follow_up <= rangeEnd) ||
+            (x.created_at >= rangeStart && x.created_at <= rangeEnd))
+      );
+
+      const conversionRate = newHighIntent > 0 ? deals.length / newHighIntent : 0;
+
+      const prevNewHighIntent = myCustomers.filter(
+        (x) => x.tier === 'high' && x.created_at >= prevRangeStart && x.created_at <= prevRangeEnd
+      ).length;
+
+      const prevDeals = myCustomers.filter(
+        (x) =>
+          x.status === 'deal' &&
+          ((x.last_follow_up && x.last_follow_up >= prevRangeStart && x.last_follow_up <= prevRangeEnd) ||
+            (x.created_at >= prevRangeStart && x.created_at <= prevRangeEnd))
+      ).length;
+
+      const prevConversionRate = prevNewHighIntent > 0 ? prevDeals / prevNewHighIntent : 0;
+      const conversionTrend = conversionRate - prevConversionRate;
+
+      const overdueCount = myCustomers.filter((cust) => {
+        if (cust.status !== 'active') return false;
+        const lastDays = cust.last_follow_up
+          ? daysSince(cust.last_follow_up)
+          : daysSince(cust.created_at);
+        const threshold =
+          cust.tier === 'high' ? 1 : cust.tier === 'nurturing' ? 3 : cust.tier === 'watching' ? 7 : 30;
+        return lastDays - threshold > 0;
+      }).length;
+
+      return {
+        ...c,
+        newHighIntent,
+        dealsCount: deals.length,
+        conversionRate,
+        conversionTrend,
+        overdueCount,
+      };
+    });
+
+    return stats;
+  }, [consultants, customers, dateRange, rangeDays]);
+
+  const trendChartData = useMemo(() => {
+    return dateRange.map((dr) => {
+      const item: Record<string, string | number> = {
+        date: dr.label,
+        fullDate: dr.date,
+      };
+      consultants.forEach((c) => {
+        const myCustomers = customers.filter((x) => x.consultant_id === c.id);
+        const deals = myCustomers.filter(
+          (x) =>
+            x.status === 'deal' &&
+            (x.last_follow_up === dr.date || x.created_at === dr.date)
+        ).length;
+        item[c.name] = deals;
+      });
+      return item;
+    });
+  }, [dateRange, consultants, customers]);
+
+  const allOverdueCustomers = useMemo(() => {
+    return customers
+      .map((c) => {
+        if (c.status !== 'active') return null;
+        const lastDays = c.last_follow_up
+          ? daysSince(c.last_follow_up)
+          : daysSince(c.created_at);
+        const threshold =
+          c.tier === 'high' ? 1 : c.tier === 'nurturing' ? 3 : c.tier === 'watching' ? 7 : 30;
+        const overdueDays = lastDays - threshold;
+        if (overdueDays <= 0) return null;
+        return { customer: c, overdueDays };
+      })
+      .filter((x): x is { customer: Customer; overdueDays: number } => x !== null)
+      .sort((a, b) => b.overdueDays - a.overdueDays);
+  }, [customers]);
 
   const formatAmount = (n: number) => {
     if (n >= 10000) return (n / 10000).toFixed(1) + '万';
@@ -802,7 +946,36 @@ export default function Dashboard() {
           </button>
         </motion.div>
 
-        <div className="grid grid-cols-10 gap-5 items-start">
+        <motion.div
+          variants={fadeInUp}
+          className="flex items-center justify-center gap-1 bg-peach-soft/60 rounded-xl p-1 w-fit mx-auto"
+        >
+          <button
+            onClick={() => setViewMode('consultant')}
+            className={cn(
+              'px-6 py-2.5 rounded-lg text-sm font-medium transition-all',
+              viewMode === 'consultant'
+                ? 'bg-white text-ink shadow-sm'
+                : 'text-ink-soft hover:text-ink'
+            )}
+          >
+            咨询师视图
+          </button>
+          <button
+            onClick={() => setViewMode('supervisor')}
+            className={cn(
+              'px-6 py-2.5 rounded-lg text-sm font-medium transition-all',
+              viewMode === 'supervisor'
+                ? 'bg-rose-gold-gradient text-white shadow-sm'
+                : 'text-ink-soft hover:text-ink'
+            )}
+          >
+            主管运营视图
+          </button>
+        </motion.div>
+
+        {viewMode === 'consultant' && (
+          <div className="grid grid-cols-10 gap-5 items-start">
           <motion.div
             variants={fadeInUp}
             className="col-span-7 card p-5"
@@ -845,6 +1018,257 @@ export default function Dashboard() {
             <TierDistributionPie tierCounts={tierCounts} />
           </div>
         </div>
+        )}
+
+        {viewMode === 'supervisor' && (
+          <div className="space-y-5">
+            <motion.div variants={fadeInUp} className="flex items-center justify-between">
+              <div className="flex items-center gap-1 bg-peach-soft/60 rounded-xl p-1">
+                <button
+                  onClick={() => setRangeDays(7)}
+                  className={cn(
+                    'px-5 py-2 rounded-lg text-sm font-medium transition-all',
+                    rangeDays === 7
+                      ? 'bg-white text-ink shadow-sm'
+                      : 'text-ink-soft hover:text-ink'
+                  )}
+                >
+                  近7天
+                </button>
+                <button
+                  onClick={() => setRangeDays(30)}
+                  className={cn(
+                    'px-5 py-2 rounded-lg text-sm font-medium transition-all',
+                    rangeDays === 30
+                      ? 'bg-white text-ink shadow-sm'
+                      : 'text-ink-soft hover:text-ink'
+                  )}
+                >
+                  近30天
+                </button>
+              </div>
+              <div className="text-sm text-ink-soft">
+                统计周期：{dateRange[0]?.date} ~ {dateRange[dateRange.length - 1]?.date}
+              </div>
+            </motion.div>
+
+            <motion.div variants={fadeInUp} className="card p-6">
+              <h3 className="section-title !mb-0 mb-5">咨询师转化趋势对比</h3>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-rose-gold-100">
+                      <th className="text-left py-3 px-4 text-sm font-semibold text-ink-soft">咨询师</th>
+                      <th className="text-center py-3 px-4 text-sm font-semibold text-ink-soft">新增高意向</th>
+                      <th className="text-center py-3 px-4 text-sm font-semibold text-ink-soft">成交数</th>
+                      <th className="text-center py-3 px-4 text-sm font-semibold text-ink-soft">转化率</th>
+                      <th className="text-center py-3 px-4 text-sm font-semibold text-ink-soft">超期风险</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {supervisorStats.map((s) => (
+                      <tr key={s.id} className="border-b border-rose-gold-50 hover:bg-peach-soft/30 transition-colors">
+                        <td className="py-3.5 px-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-9 h-9 rounded-full bg-rose-gold-100 flex items-center justify-center">
+                              <UserCircle2 className="w-5 h-5 text-rose-gold-500" />
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium text-ink">{s.name}</p>
+                              <p className="text-xs text-ink-soft">累计成交 {s.total_deals} 单</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-4 text-center">
+                          <span className="text-lg font-bold text-coral">{s.newHighIntent}</span>
+                          <span className="text-xs text-ink-soft ml-1">人</span>
+                        </td>
+                        <td className="py-3.5 px-4 text-center">
+                          <span className="text-lg font-bold text-mint">{s.dealsCount}</span>
+                          <span className="text-xs text-ink-soft ml-1">单</span>
+                        </td>
+                        <td className="py-3.5 px-4 text-center">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <span className="text-lg font-bold text-rose-gold-500">
+                              {Math.round(s.conversionRate * 100)}
+                              <span className="text-sm text-ink-soft ml-0.5">%</span>
+                            </span>
+                            {s.conversionTrend !== 0 && (
+                              <span className={cn(
+                                'flex items-center text-xs font-medium',
+                                s.conversionTrend > 0 ? 'text-mint' : 'text-coral'
+                              )}>
+                                {s.conversionTrend > 0 ? (
+                                  <TrendingUp className="w-3.5 h-3.5" />
+                                ) : (
+                                  <TrendingDown className="w-3.5 h-3.5" />
+                                )}
+                                {Math.abs(Math.round(s.conversionTrend * 100))}%
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-4 text-center">
+                          {s.overdueCount > 2 ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-coral/10 text-coral text-xs font-medium">
+                              <Flame className="w-3.5 h-3.5" />
+                              高风险 ({s.overdueCount})
+                            </span>
+                          ) : s.overdueCount >= 1 ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-50 text-amber-600 text-xs font-medium">
+                              <AlertTriangle className="w-3.5 h-3.5" />
+                              中风险 ({s.overdueCount})
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-mint/10 text-mint text-xs font-medium">
+                              ✅ 正常
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </motion.div>
+
+            <motion.div variants={fadeInUp} className="card p-6">
+              <h3 className="section-title !mb-0 mb-5">每日成交趋势</h3>
+              <div className="h-[320px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={trendChartData} margin={{ top: 10, right: 30, left: 0, bottom: 30 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#EDDAC4" vertical={false} />
+                    <XAxis
+                      dataKey="date"
+                      tick={{ fill: '#4A5A82', fontSize: 12 }}
+                      axisLine={{ stroke: '#EDDAC4' }}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      tick={{ fill: '#4A5A82', fontSize: 12 }}
+                      axisLine={false}
+                      tickLine={false}
+                      allowDecimals={false}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        borderRadius: '12px',
+                        border: '1px solid #EDDAC4',
+                        boxShadow: '0 4px 20px rgba(30,42,74,0.08)',
+                        fontSize: '12px',
+                      }}
+                    />
+                    <Legend
+                      verticalAlign="bottom"
+                      height={36}
+                      iconType="circle"
+                      iconSize={8}
+                      formatter={(value) => (
+                        <span className="text-xs text-ink-soft">{value}</span>
+                      )}
+                    />
+                    {consultants.map((c, idx) => (
+                      <Line
+                        key={c.id}
+                        type="monotone"
+                        dataKey={c.name}
+                        stroke={lineColors[idx % lineColors.length]}
+                        strokeWidth={2.5}
+                        dot={{ r: 3, fill: lineColors[idx % lineColors.length] }}
+                        activeDot={{ r: 6 }}
+                      />
+                    ))}
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </motion.div>
+
+            <motion.div variants={fadeInUp} className="card p-6">
+              <div className="flex items-center justify-between mb-5">
+                <h3 className="section-title !mb-0">风险预警清单</h3>
+                <span className="text-xs font-medium px-2.5 py-1 bg-coral/10 text-coral rounded-full">
+                  共 {allOverdueCustomers.length} 人
+                </span>
+              </div>
+              {allOverdueCustomers.length === 0 ? (
+                <div className="text-center py-12 text-ink-soft/50 text-sm">
+                  暂无超期风险客户
+                </div>
+              ) : (
+                <div className="space-y-3 max-h-[360px] overflow-y-auto pr-1">
+                  {allOverdueCustomers.map(({ customer, overdueDays }) => {
+                    const consultant = consultants.find((c) => c.id === customer.consultant_id);
+                    const tierCfg = TIER_CONFIG[customer.tier];
+                    return (
+                      <div
+                        key={customer.id}
+                        className={cn(
+                          'flex items-center justify-between p-4 rounded-xl transition-all',
+                          overdueDays > 7
+                            ? 'bg-coral/8 border border-coral/20'
+                            : 'bg-peach-soft/50 border border-rose-gold-50'
+                        )}
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div
+                            className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
+                            style={{ backgroundColor: tierCfg.bgColor }}
+                          >
+                            <span
+                              className="text-sm font-bold"
+                              style={{ color: tierCfg.color }}
+                            >
+                              {customer.name.slice(-1)}
+                            </span>
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-ink truncate">
+                              {customer.name}
+                            </p>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span
+                                className="text-[11px] px-1.5 py-0.5 rounded"
+                                style={{
+                                  backgroundColor: tierCfg.bgColor,
+                                  color: tierCfg.color,
+                                }}
+                              >
+                                {tierCfg.label}
+                              </span>
+                              <span className="text-[11px] text-ink-soft">
+                                咨询师：{consultant?.name ?? '未分配'}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3 flex-shrink-0">
+                          <div className="text-right">
+                            <p className={cn(
+                              'text-sm font-bold',
+                              overdueDays > 7 ? 'text-coral' : 'text-amber-600'
+                            )}>
+                              超期 {overdueDays} 天
+                            </p>
+                            <p className="text-[11px] text-ink-soft">
+                              {customer.tier === 'high' ? '应1天内跟进' :
+                               customer.tier === 'nurturing' ? '应3天内跟进' :
+                               customer.tier === 'watching' ? '应7天内跟进' : '应30天内跟进'}
+                            </p>
+                          </div>
+                          <button className="flex items-center gap-1 px-3 py-2 bg-rose-gold-gradient text-white rounded-lg text-xs font-medium hover:shadow-glow transition-all">
+                            一键分配
+                            <ArrowRight className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </motion.div>
+          </div>
+        )}
+
       </motion.div>
     </div>
   );

@@ -29,6 +29,8 @@ import {
   ChevronRight,
   Crown,
   User,
+  Star,
+  CheckCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -40,7 +42,7 @@ import {
   DECISION_CYCLES,
 } from '@/constants/dictionaries';
 import { useCustomerStore } from '@/store/customerStore';
-import type { Customer } from '@/types';
+import type { Customer, FollowUpTask, VisitRecord } from '@/types';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -66,6 +68,8 @@ export default function CustomerProfile() {
   const navigate = useNavigate();
   const customers = useCustomerStore((s) => s.customers);
   const consultants = useCustomerStore((s) => s.consultants);
+  const tasks = useCustomerStore((s) => s.tasks);
+  const records = useCustomerStore((s) => s.records);
   const addTask = useCustomerStore((s) => s.addTask);
   const initializeMockData = useCustomerStore((s) => s.initializeMockData);
 
@@ -146,6 +150,74 @@ export default function CustomerProfile() {
       .replace('{project}', customer.projects[0] ?? '您关注的项目')
       .replace('{expert}', '王主任');
   }, [customer]);
+
+  type TimelineItem = {
+    id: string;
+    type: 'task' | 'record';
+    date: string;
+    title: string;
+    color: string;
+    priority?: string;
+    method?: string;
+    note?: string;
+    satisfaction?: number;
+    recordType?: string;
+    undealReason?: string;
+  };
+
+  const timelineData = useMemo<TimelineItem[]>(() => {
+    if (!customer) return [];
+
+    const priorityLabel: Record<string, string> = {
+      high: '高优先级',
+      medium: '中优先级',
+      low: '低优先级',
+    };
+    const methodLabel: Record<string, string> = {
+      wechat: '微信',
+      phone: '电话',
+      visit: '到店',
+    };
+    const recordTypeLabel: Record<string, string> = {
+      consultation: '术前咨询',
+      follow_up: '跟进回访',
+      post_op: '术后回访',
+    };
+
+    const completedTasks: TimelineItem[] = tasks
+      .filter((t) => t.customer_id === customer.id && t.completed)
+      .map((t: FollowUpTask) => ({
+        id: t.id,
+        type: 'task',
+        date: t.completed_at ?? t.due_date,
+        title: '跟进完成',
+        color: '#D4A574',
+        priority: t.priority ? priorityLabel[t.priority] : undefined,
+        method: t.follow_up_method ? methodLabel[t.follow_up_method] : undefined,
+        note: t.follow_up_note,
+      }));
+
+    const visitRecords: TimelineItem[] = records
+      .filter((r) => r.customer_id === customer.id)
+      .map((r: VisitRecord) => {
+        const isUndeal = !!r.undeal_reason;
+        return {
+          id: r.id,
+          type: 'record',
+          date: r.created_at,
+          title: recordTypeLabel[r.record_type] ?? '回访记录',
+          color: isUndeal ? '#FF6B6B' : '#4ECDC4',
+          satisfaction: r.satisfaction,
+          recordType: r.record_type,
+          undealReason: r.undeal_reason,
+          note: r.note,
+        };
+      });
+
+    return [...completedTasks, ...visitRecords].sort(
+      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+    );
+  }, [customer, tasks, records]);
 
   const handleCreateTask = () => {
     if (!customer) return;
@@ -643,6 +715,83 @@ export default function CustomerProfile() {
               </div>
             </button>
           </motion.div>
+        </motion.div>
+
+        <motion.div variants={itemVariants} className="mt-6">
+          <div className="card p-6 card-hover">
+            <h2 className="section-title mb-5">历史跟进与回访</h2>
+            {timelineData.length === 0 ? (
+              <div className="text-center py-16 text-ink-soft/50 text-sm">
+                暂无跟进与回访记录
+              </div>
+            ) : (
+              <div className="relative">
+                <div className="absolute left-[11px] top-2 bottom-2 w-px bg-rose-gold-100" />
+                <div className="space-y-5">
+                  {timelineData.map((item) => (
+                    <div key={item.id} className="relative flex gap-4">
+                      <div
+                        className="relative z-10 w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
+                        style={{ backgroundColor: item.color }}
+                      >
+                        {item.type === 'task' ? (
+                          <CheckCircle className="w-3.5 h-3.5 text-white" />
+                        ) : (
+                          <Star className="w-3.5 h-3.5 text-white" fill="white" />
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0 pb-1">
+                        <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                          <h4 className="font-semibold text-ink text-sm">{item.title}</h4>
+                          <span className="text-xs text-ink-soft">{item.date}</span>
+                          {item.priority && (
+                            <span
+                              className="text-[11px] px-2 py-0.5 rounded-full font-medium"
+                              style={{
+                                backgroundColor: item.color + '20',
+                                color: item.color,
+                              }}
+                            >
+                              {item.priority}
+                            </span>
+                          )}
+                          {item.method && (
+                            <span className="text-[11px] px-2 py-0.5 rounded-full bg-peach-soft text-ink-soft font-medium">
+                              {item.method}
+                            </span>
+                          )}
+                          {item.satisfaction !== undefined && (
+                            <div className="flex items-center gap-0.5">
+                              {Array.from({ length: 5 }).map((_, i) => (
+                                <Star
+                                  key={i}
+                                  className="w-3 h-3"
+                                  fill={i < item.satisfaction! ? '#F59E0B' : 'none'}
+                                  stroke={i < item.satisfaction! ? '#F59E0B' : '#E5E7EB'}
+                                />
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        {item.undealReason && (
+                          <div className="mb-1.5">
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-coral/10 text-coral font-medium">
+                              未成交原因：{item.undealReason}
+                            </span>
+                          </div>
+                        )}
+                        {item.note && (
+                          <p className="text-sm text-ink-soft leading-relaxed">
+                            {item.note}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         </motion.div>
       </div>
 

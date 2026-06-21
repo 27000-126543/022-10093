@@ -8,12 +8,38 @@ import {
 } from '@/utils/tierAlgorithm';
 import { mockCustomers, mockTasks, mockRecords, mockConsultants } from '@/data/mockData';
 
+const STORAGE_KEY = 'meiyi-customer-store-v1';
+
+function loadFromStorage<T>(key: string): T | null {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
+function saveToStorage<T>(key: string, value: T): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+  }
+}
+
 function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).substr(2);
 }
 
 function formatDate(date: Date): string {
   return date.toISOString().split('T')[0];
+}
+
+interface PersistedData {
+  customers: Customer[];
+  tasks: FollowUpTask[];
+  records: VisitRecord[];
+  consultants: Consultant[];
 }
 
 interface CustomerStore {
@@ -34,6 +60,7 @@ interface CustomerStore {
   addRecord: (record: Partial<VisitRecord>) => void;
 
   initializeMockData: () => void;
+  resetStore: () => void;
 
   getOverdueCustomers: () => Customer[];
   getCustomersByTier: (tier: string) => Customer[];
@@ -115,10 +142,19 @@ export const useCustomerStore = create<CustomerStore>((set, get) => ({
       completed: false,
     };
 
-    set((state) => ({
-      customers: [...state.customers, customer],
-      tasks: [...state.tasks, initialTask],
-    }));
+    set((state) => {
+      const newState = {
+        customers: [...state.customers, customer],
+        tasks: [...state.tasks, initialTask],
+      };
+      saveToStorage<PersistedData>(STORAGE_KEY, {
+        customers: newState.customers,
+        tasks: newState.tasks,
+        records: state.records,
+        consultants: state.consultants,
+      });
+      return newState;
+    });
 
     return customer;
   },
@@ -151,6 +187,13 @@ export const useCustomerStore = create<CustomerStore>((set, get) => ({
         return updated;
       });
 
+      saveToStorage<PersistedData>(STORAGE_KEY, {
+        customers,
+        tasks: state.tasks,
+        records: state.records,
+        consultants: state.consultants,
+      });
+
       return { customers };
     });
   },
@@ -170,17 +213,31 @@ export const useCustomerStore = create<CustomerStore>((set, get) => ({
       ...task,
     };
 
-    set((state) => ({
-      tasks: [...state.tasks, newTask],
-    }));
+    set((state) => {
+      const tasks = [...state.tasks, newTask];
+      saveToStorage<PersistedData>(STORAGE_KEY, {
+        customers: state.customers,
+        tasks,
+        records: state.records,
+        consultants: state.consultants,
+      });
+      return { tasks };
+    });
   },
 
   updateTask: (id, data) => {
-    set((state) => ({
-      tasks: state.tasks.map((t) =>
+    set((state) => {
+      const tasks = state.tasks.map((t) =>
         t.id === id ? { ...t, ...data } : t
-      ),
-    }));
+      );
+      saveToStorage<PersistedData>(STORAGE_KEY, {
+        customers: state.customers,
+        tasks,
+        records: state.records,
+        consultants: state.consultants,
+      });
+      return { tasks };
+    });
   },
 
   completeTask: (id) => {
@@ -198,6 +255,13 @@ export const useCustomerStore = create<CustomerStore>((set, get) => ({
         c.id === task.customer_id ? { ...c, last_follow_up: now } : c
       );
 
+      saveToStorage<PersistedData>(STORAGE_KEY, {
+        customers,
+        tasks,
+        records: state.records,
+        consultants: state.consultants,
+      });
+
       return { tasks, customers };
     });
   },
@@ -213,13 +277,52 @@ export const useCustomerStore = create<CustomerStore>((set, get) => ({
       created_at: formatDate(new Date()),
     };
 
-    set((state) => ({
-      records: [...state.records, newRecord],
-    }));
+    set((state) => {
+      const records = [...state.records, newRecord];
+      saveToStorage<PersistedData>(STORAGE_KEY, {
+        customers: state.customers,
+        tasks: state.tasks,
+        records,
+        consultants: state.consultants,
+      });
+      return { records };
+    });
   },
 
   initializeMockData: () => {
+    const existing = loadFromStorage<PersistedData>(STORAGE_KEY);
+    if (existing && existing.customers && existing.customers.length > 0) {
+      set({
+        customers: existing.customers,
+        tasks: existing.tasks ?? [],
+        records: existing.records ?? [],
+        consultants: existing.consultants ?? [],
+      });
+    } else {
+      set({
+        customers: mockCustomers,
+        tasks: mockTasks,
+        records: mockRecords,
+        consultants: mockConsultants,
+      });
+      saveToStorage<PersistedData>(STORAGE_KEY, {
+        customers: mockCustomers,
+        tasks: mockTasks,
+        records: mockRecords,
+        consultants: mockConsultants,
+      });
+    }
+  },
+
+  resetStore: () => {
+    localStorage.removeItem(STORAGE_KEY);
     set({
+      customers: mockCustomers,
+      tasks: mockTasks,
+      records: mockRecords,
+      consultants: mockConsultants,
+    });
+    saveToStorage<PersistedData>(STORAGE_KEY, {
       customers: mockCustomers,
       tasks: mockTasks,
       records: mockRecords,
